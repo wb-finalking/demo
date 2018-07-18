@@ -79,6 +79,351 @@ def createTFRecord(output, data_path, list_category_img, list_partition, partiti
                     if itr % 500 == 0:
                         print('On image %d of %d', num, total_num)
 
+def createNewTFRecord(output, data_path, list_category_img):
+    itr = 0
+    num = 0
+
+    path = '/home/lingdi/project/Img/'
+
+    with tf.python_io.TFRecordWriter(output) as writer:
+        with open(list_category_img, "r") as f_c:
+            line_c = f_c.next()
+            total_num = int(line_c.strip())
+            f_c.next()
+
+            for line_c in f_c:
+                line_c = line_c.strip()
+
+
+                image_path = os.path.join(data_path, line_c.split(' ')[0])
+                catagory_label = int(line_c.split(' ')[-1])
+                if catagory_label in [1, 11]:
+                    num = num + 1
+                    try:
+                        # img = Image.open(image_path)
+                        # img.save(path+'jacket/'+str(num)+'.jpg')
+                        tf_example = dict_to_tf_example(image_path, 0)
+                    except:
+                        print("{} error...".format(image_path))
+                        continue
+                    writer.write(tf_example.SerializeToString())
+                elif catagory_label in [16]:
+                    num = num + 1
+                    try:
+                        # img = Image.open(image_path)
+                        # img.save(path + 'sweater/' + str(num) + '.jpg')
+                        tf_example = dict_to_tf_example(image_path, 1)
+                    except:
+                        print("{} error...".format(image_path))
+                        continue
+                    writer.write(tf_example.SerializeToString())
+                elif catagory_label in [18]:
+                    num = num + 1
+                    try:
+                        # img = Image.open(image_path)
+                        # img.save(path + 'T/' + str(num) + '.jpg')
+                        tf_example = dict_to_tf_example(image_path, 2)
+                    except:
+                        print("{} error...".format(image_path))
+                        continue
+                    writer.write(tf_example.SerializeToString())
+                elif catagory_label in [26,27]:
+                    num = num + 1
+                    try:
+                        # img = Image.open(image_path)
+                        # img.save(path + 'jeans/' + str(num) + '.jpg')
+                        tf_example = dict_to_tf_example(image_path, 3)
+                    except:
+                        print("{} error...".format(image_path))
+                        continue
+                    writer.write(tf_example.SerializeToString())
+                elif catagory_label in [32]:
+                    num = num + 1
+                    try:
+                        # img = Image.open(image_path)
+                        # img.save(path + 'shorts/' + str(num) + '.jpg')
+                        tf_example = dict_to_tf_example(image_path, 4)
+                    except:
+                        print("{} error...".format(image_path))
+                        continue
+                    writer.write(tf_example.SerializeToString())
+                elif catagory_label in [41]:
+                    num = num + 1
+                    try:
+                        # img = Image.open(image_path)
+                        # img.save(path + 'dress/' + str(num) + '.jpg')
+                        tf_example = dict_to_tf_example(image_path, 5)
+                    except:
+                        print("{} error...".format(image_path))
+                        continue
+                    writer.write(tf_example.SerializeToString())
+                elif catagory_label in [33]:
+                    num = num + 1
+                    try:
+                        # img = Image.open(image_path)
+                        # img.save(path + 'skirt/' + str(num) + '.jpg')
+                        tf_example = dict_to_tf_example(image_path, 6)
+                    except:
+                        print("{} error...".format(image_path))
+                        continue
+                    writer.write(tf_example.SerializeToString())
+
+                itr = itr + 1
+                if itr % 500 == 0:
+                    print('On image {} of {} @ {}'.format(num, total_num, itr))
+
+    # with open(list_category_img, "r") as f_c:
+    #
+    #     line_c = f_c.next()
+    #     total_num = int(line_c.strip())
+    #     f_c.next()
+    #
+    #     for line_c in f_c:
+    #         line_c = line_c.strip()
+    #
+    #         image_path = os.path.join(data_path, line_c.split(' ')[0])
+    #         catagory_label = int(line_c.split(' ')[-1])
+    #         if catagory_label in [1]:
+    #             num = num + 1
+    #             try:
+    #                 img = Image.open(image_path)
+    #                 img.save(path+'jacket/'+str(num)+'.jpg')
+    #             except:
+    #                 print("{} error...".format(image_path))
+    #                 continue
+    #         elif catagory_label in [6,16,20]:
+    #             num = num + 1
+    #             try:
+    #                 img = Image.open(image_path)
+    #                 img.save(path + 'sweater/' + str(num) + '.jpg')
+    #             except:
+    #                 print("{} error...".format(image_path))
+    #                 continue
+    #         elif catagory_label in [18]:
+    #             num = num + 1
+    #             try:
+    #                 img = Image.open(image_path)
+    #                 img.save(path + 'T/' + str(num) + '.jpg')
+    #             except:
+    #                 print("{} error...".format(image_path))
+    #                 continue
+    #         # elif catagory_label in [26,27]:
+    #         #     num = num + 1
+    #         #     try:
+    #         #         img = Image.open(image_path)
+    #         #         img.save(path + 'jeans/' + str(num) + '.jpg')
+    #         #     except:
+    #         #         print("{} error...".format(image_path))
+    #         #         continue
+    #         elif catagory_label in [32]:
+    #             num = num + 1
+    #             try:
+    #                 img = Image.open(image_path)
+    #                 img.save(path + 'shorts/' + str(num) + '.jpg')
+    #             except:
+    #                 print("{} error...".format(image_path))
+    #                 continue
+    #         # elif catagory_label in [41]:
+    #         #     num = num + 1
+    #         #     try:
+    #         #         img = Image.open(image_path)
+    #         #         img.save(path + 'dress/' + str(num) + '.jpg')
+    #         #     except:
+    #         #         print("{} error...".format(image_path))
+    #         #         continue
+    #         # elif catagory_label in [33]:
+    #         #     num = num + 1
+    #         #     try:
+    #         #         img = Image.open(image_path)
+    #         #         img.save(path + 'skirt/' + str(num) + '.jpg')
+    #         #     except:
+    #         #         print("{} error...".format(image_path))
+    #         #         continue
+    #
+    #         itr = itr + 1
+    #         if itr % 500 == 0:
+    #             print('On image %d of %d', num, total_num)
+
+def createMiniTFRecord(output, data_path, list_category_img):
+    itr = 0
+    num = 0
+
+    jacketNum = 0
+    sweaterNum = 0
+    TNum = 0
+    jeansNum = 0
+    shortsNum = 0
+    dressNum = 0
+    skirtNum = 0
+    threshold = 10000
+
+    path = '/home/lingdi/project/Img/'
+
+    with tf.python_io.TFRecordWriter(output) as writer:
+        with open(list_category_img, "r") as f_c:
+            line_c = f_c.next()
+            total_num = int(line_c.strip())
+            f_c.next()
+
+            for line_c in f_c:
+                line_c = line_c.strip()
+
+                image_path = os.path.join(data_path, line_c.split(' ')[0])
+                catagory_label = int(line_c.split(' ')[-1])
+                if catagory_label in [1, 11]:
+                    num = num + 1
+                    if jacketNum > threshold:
+                        continue
+                    jacketNum = jacketNum + 1
+                    try:
+                        # img = Image.open(image_path)
+                        # img.save(path+'jacket/'+str(num)+'.jpg')
+                        tf_example = dict_to_tf_example(image_path, 0)
+                    except:
+                        print("{} error...".format(image_path))
+                        continue
+                    writer.write(tf_example.SerializeToString())
+                elif catagory_label in [16]:
+                    num = num + 1
+                    if sweaterNum > threshold:
+                        continue
+                    sweaterNum = sweaterNum + 1
+                    try:
+                        # img = Image.open(image_path)
+                        # img.save(path + 'sweater/' + str(num) + '.jpg')
+                        tf_example = dict_to_tf_example(image_path, 1)
+                    except:
+                        print("{} error...".format(image_path))
+                        continue
+                    writer.write(tf_example.SerializeToString())
+                elif catagory_label in [18]:
+                    num = num + 1
+                    if TNum > threshold:
+                        continue
+                    TNum = TNum + 1
+                    try:
+                        # img = Image.open(image_path)
+                        # img.save(path + 'T/' + str(num) + '.jpg')
+                        tf_example = dict_to_tf_example(image_path, 2)
+                    except:
+                        print("{} error...".format(image_path))
+                        continue
+                    writer.write(tf_example.SerializeToString())
+                elif catagory_label in [26,27]:
+                    num = num + 1
+                    if jeansNum > threshold:
+                        continue
+                    jeansNum = jeansNum + 1
+                    try:
+                        # img = Image.open(image_path)
+                        # img.save(path + 'jeans/' + str(num) + '.jpg')
+                        tf_example = dict_to_tf_example(image_path, 3)
+                    except:
+                        print("{} error...".format(image_path))
+                        continue
+                    writer.write(tf_example.SerializeToString())
+                elif catagory_label in [32]:
+                    num = num + 1
+                    if shortsNum > threshold:
+                        continue
+                    shortsNum = shortsNum + 1
+                    try:
+                        # img = Image.open(image_path)
+                        # img.save(path + 'shorts/' + str(num) + '.jpg')
+                        tf_example = dict_to_tf_example(image_path, 4)
+                    except:
+                        print("{} error...".format(image_path))
+                        continue
+                    writer.write(tf_example.SerializeToString())
+                elif catagory_label in [41]:
+                    num = num + 1
+                    if dressNum > threshold:
+                        continue
+                    dressNum = dressNum + 1
+                    try:
+                        # img = Image.open(image_path)
+                        # img.save(path + 'dress/' + str(num) + '.jpg')
+                        tf_example = dict_to_tf_example(image_path, 5)
+                    except:
+                        print("{} error...".format(image_path))
+                        continue
+                    writer.write(tf_example.SerializeToString())
+                elif catagory_label in [33]:
+                    num = num + 1
+                    if skirtNum > threshold:
+                        continue
+                    skirtNum = skirtNum + 1
+                    try:
+                        # img = Image.open(image_path)
+                        # img.save(path + 'skirt/' + str(num) + '.jpg')
+                        tf_example = dict_to_tf_example(image_path, 6)
+                    except:
+                        print("{} error...".format(image_path))
+                        continue
+                    writer.write(tf_example.SerializeToString())
+
+                itr = itr + 1
+                if itr % 500 == 0:
+                    print('On image {} of {} @ {}'.format(num, total_num, itr))
+                    print('jacket: {}, sweater: {}, Tee: {}, jeans: {}, shorts: {}, dress: {}, skirt: {}'
+                          .format(jacketNum, sweaterNum, TNum, jeansNum, shortsNum, dressNum, skirtNum))
+
+def createFashionDataRecord(output, data_path, list_category_img):
+    '''
+    0:  'blouses':896,
+    1:  'cloak':7061,
+    2:  'coat':9061,
+    3:  'jacket':9366,
+    4:  'long dress':10090,
+    5:  'polo shirt, sport shirt':780,
+    6:  'robe':5799,
+    7:  'shirt':1425,
+    8:  'short dress':4285,
+    9:  'suit, suit of clothes':6054,
+    10: 'sweater':5209,
+    11: 'jersey, T-shirt, tee shirt':1426,
+    12: 'undergarment, upper body':5538,
+    13: 'uniform':3353,
+    14: 'vest, waistcoat':750,
+    '''
+
+    itr = 0
+
+    numSet = ['blousesNum','cloakNum','oatNum','jacketNum','dressNum','poloShirtNum',
+           'robeNum','shirtNum','skirtNum','suitNum','sweaterNum','TNum',
+           'undergarmentNum','uniformNum','waistcoatNum']
+
+    numDict = {}
+    for num in numSet:
+        numDict[num] = 0
+
+    path = '/home/lingdi/project/fashion-data/'
+
+    with tf.python_io.TFRecordWriter(output) as writer:
+        with open(list_category_img, "r") as f_c:
+            for line_c in f_c:
+                line_c = line_c.strip()
+
+                image_path = os.path.join(data_path, line_c.split(' ')[0])
+                image_path += '.jpg'
+                catagory_label = int(line_c.split('/')[0])
+                try:
+                    tf_example = dict_to_tf_example(image_path, catagory_label)
+                    numDict[numSet[catagory_label]] += 1
+
+                except:
+                    print("{} error...".format(image_path))
+                    continue
+                writer.write(tf_example.SerializeToString())
+
+                itr = itr + 1
+                if itr % 500 == 0:
+                    print('On image {} of {}'.format(itr, 17858))
+
+    for num in numSet:
+        print('{}: {}'.format(num, numDict[num]))
+
+
 """
     read tfrecorde
     
@@ -247,22 +592,20 @@ def preprocess_image(image, catagory, is_training, params):
         # # Randomly scale the image and label.
         # image = random_rescale_image_and_label(
         #     image, params['min_scale'], params['max_scale'])
-        #
-        # # Randomly crop or pad a [_HEIGHT, _WIDTH] section of the image and label.
+
+        # Randomly crop or pad a [_HEIGHT, _WIDTH] section of the image and label.
         # image = random_crop_or_pad_image_and_label(
         #     image, params['height'], params['width'])
-        #
-        # # Randomly flip the image and label horizontally.
-        # image = random_flip_left_right_image_and_label(image)
-        #
+
+        # Randomly flip the image and label horizontally.
+        image = random_flip_left_right_image_and_label(image)
+
         # image.set_shape([params['height'], params['width'], 3])
 
         # resize Image and keep scale
         image = resizeImageKeepScale(image, targetW=params['width'], targetH=params['height'])
 
-    # image = mean_image_subtraction(image)
-    # label = np.zeros(params['class_num'])
-    # label[int(catagory)] = 1
+    image = mean_image_subtraction(image)
     label = slim.one_hot_encoding(catagory, params['class_num'])
 
     return image, label
@@ -304,26 +647,58 @@ def input_fn(is_training, recordFilename, params):
 
 def testTfrecord():
 
-    inputs, labels = input_fn(True, ['train.record'], params={
+    inputs, labels = input_fn(True, ['miniTrain.record'], params={
         'num_epochs': 20,
-        'class_num': 50,
+        'class_num': 7,
         'batch_size': 5,
-        'buffer_size': 30,
-        'min_scale': 0.8,
-        'max_scale': 1.2,
+        'buffer_size': 70000,
+        'min_scale': 0.9,
+        'max_scale': 1.1,
         'height': 299,
         'width': 299,
         'ignore_label': 255,
     })
 
     with tf.Session() as sess:
-        input, label = sess.run([inputs, labels])
+        for i in range(10):
+            input, label = sess.run([inputs, labels])
 
-        print(label)
-        img = input[0,:,:,:]/255
-        img = img[:,:,[2,1,0]]
-        cv2.imshow('',img)
-        cv2.waitKey(0)
+            # if i < 998:
+            #     continue
+            print('label: {}'.format(label))
+            img = input[0,:,:,:]
+            (R, G, B) = cv2.split(img)
+            R = R + 123.68
+            G = G + 116.779
+            B = B + 103.939
+            img = cv2.merge([R, G, B])
+            im = Image.fromarray(np.uint8(np.array(img)))
+            im.show('')
+            #cv2.imshow('',img)
+            #cv2.waitKey(0)
+
+def resize(im, targetW=300, targetH=300):
+    # targetW = 300
+    # targetH = 300
+
+    ratio = 1
+
+    im = Image.fromarray(np.uint8(np.array(im)))
+    w = im.size[0]
+    h = im.size[1]
+
+    if w < targetW or h < targetH:
+        pass
+    else:
+        ratio = min(float(targetW) / w, float(targetH) / h)
+        w = int(w * ratio)
+        h = int(h * ratio)
+        im = im.resize((w, h), Image.ANTIALIAS)
+
+    new_im = Image.new("RGB", (targetW, targetH))
+    new_im.paste(im, ((targetW - w) // 2,
+                      (targetH - h) // 2))
+    return new_im
 
 if __name__ == '__main__':
     # createTFRecord('val.record',
@@ -332,4 +707,11 @@ if __name__ == '__main__':
     #                '/home/lingdi/Downloads/Img/Eval/list_eval_partition.txt',
     #                'val')
 
+    # createMiniTFRecord('miniTrain.record',
+    #                '/home/lingdi/Downloads/Img',
+    #                '/home/lingdi/Downloads/Img/Anno/list_category_img.txt')
+
+    # createFashionDataRecord('fashionDataEval.record',
+    #                    '/home/lingdi/project/fashion-data/images',
+    #                    '/home/lingdi/project/fashion-data/test.txt')
     testTfrecord()

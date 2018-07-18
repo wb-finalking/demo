@@ -3,9 +3,12 @@ from __future__ import division
 from __future__ import print_function
 
 import tensorflow as tf
+from tensorflow.python.framework import graph_util
 from classifyPreprocess import *
 import cv2
 from PIL import Image
+import pandas as pd
+import csv
 import logging
 logging.basicConfig(level=10, filename='train.log')
 logger = logging.getLogger(__name__)
@@ -13,7 +16,7 @@ logger = logging.getLogger(__name__)
 slim = tf.contrib.slim
 
 tf.app.flags.DEFINE_integer(
-    'num_classes', 50,
+    'num_classes', 7,
     'The class number')
 
 tf.app.flags.DEFINE_boolean('freeze_batch_norm', True,
@@ -70,7 +73,7 @@ tf.app.flags.DEFINE_float(
     'weight_decay', 0.00004, 'The weight decay on the model weights.')
 
 tf.app.flags.DEFINE_string(
-    'optimizer', 'sgd',
+    'optimizer', 'adadelta',
     'The name of the optimizer, one of "adadelta", "adagrad", "adam",'
     '"ftrl", "momentum", "sgd" or "rmsprop".')
 
@@ -123,10 +126,10 @@ tf.app.flags.DEFINE_string(
     'Specifies how the learning rate is decayed. One of "fixed", "exponential",'
     ' or "polynomial"')
 
-tf.app.flags.DEFINE_float('learning_rate', 0.01, 'Initial learning rate.')
+tf.app.flags.DEFINE_float('learning_rate', 0.001, 'Initial learning rate.')
 
 tf.app.flags.DEFINE_float(
-    'end_learning_rate', 0.0001,
+    'end_learning_rate', 0.00001,
     'The minimal end learning rate used by a polynomial decay learning rate.')
 
 tf.app.flags.DEFINE_float(
@@ -172,7 +175,7 @@ tf.app.flags.DEFINE_integer(
     'class for the ImageNet dataset.')
 
 tf.app.flags.DEFINE_string(
-    'model_name', 'inception_v3', 'The name of the architecture to train.')
+    'model_name', 'inception_v4', 'The name of the architecture to train.')
 
 tf.app.flags.DEFINE_string(
     'preprocessing_name', None, 'The name of the preprocessing to use. If left '
@@ -655,12 +658,11 @@ class Inceptionv4:
             raise ValueError('Optimizer [%s] was not recognized', FLAGS.optimizer)
         return optimizer
 
-
 def test():
 
-    img = Image.open('/home/lingdi/project/test/13.jpg')
+    img = Image.open('/home/lingdi/project/test/29.jpg')
     img = img.convert('RGB')
-    img = img.resize((299, 299))
+    img = resize(img, 299, 299)
     img.show('')
     img = np.array(img)
     (R, G, B) = cv2.split(img)
@@ -693,25 +695,112 @@ def test():
         logger.debug('class :{}'.format(np.argmax(pre)))
 
         print(np.argmax(pre))
-        print(w)
+        print(pre)
 
+def testSemir():
 
-def train():
     inceptionv4 = Inceptionv4()
 
-    # inputs = tf.placeholder(tf.float32, shape=(None, 299, 299, 3))
-    # labels = tf.placeholder(tf.int32, shape=(None, FLAGS.num_classes))
-    inputs, labels = input_fn(True, ['train.record'], params={
-        'num_epochs': 20,
+    inputs = tf.placeholder(tf.float32, shape=(None, 299, 299, 3))
+
+    logits, end_points = inceptionv4.buildNet(inputs,
+                                              num_classes=(FLAGS.num_classes - FLAGS.labels_offset),
+                                              weight_decay=FLAGS.weight_decay,
+                                              is_training=True)
+
+    print(tf.contrib.slim.get_variables_to_restore(exclude=[]))
+    w = tf.get_default_graph().get_tensor_by_name('InceptionV4/Conv2d_1a_3x3/BatchNorm/beta:0')
+    with tf.Session() as sess:
+        saver = tf.train.Saver()
+        ckpt = tf.train.get_checkpoint_state(FLAGS.model_dir)
+        saver.restore(sess, ckpt.model_checkpoint_path)
+        logger.info("Model restored...")
+
+        dict = {}
+        data = pd.read_csv('demo_clothings.csv')
+        keys = data.keys()
+        for key in keys:
+            dict[key] = data[key].values
+        img_path = '/home/lingdi/project/test/images/'
+        img_names = dict['file_name']
+        catagoty = dict['category']
+
+        length = len(img_names)
+        datas = []
+        acc = 0
+        for i in range(length):
+            try:
+                img = Image.open(img_path + img_names[i])
+            except:
+                print('No image...')
+                continue
+            img = img.convert('RGB')
+            img = resize(img, 299, 299)
+            # img.show('')
+            img = np.array(img)
+            (R, G, B) = cv2.split(img)
+            R = R - 123.68
+            G = G - 116.779
+            B = B - 103.939
+            img = cv2.merge([R, G, B])
+            img = np.expand_dims(img, axis=0)
+
+            tensors = [end_points['Predictions']]
+            pre = sess.run(tensors, feed_dict={inputs: img})
+
+            print(np.argmax(pre[0]))
+            try:
+                if np.argmax(pre[0]) ==int(catagoty[i]):
+                    acc += 1
+            except:
+                print('Not contain this type...')
+                continue
+
+            single_dict = {}
+            single_dict['name'] = img_names[i]
+            single_dict['catagory'] = catagoty[i]
+            single_dict['pre'] = pre
+
+            datas.append(single_dict)
+
+        print('acc: {}'.format(acc/length))
+        with open('a.csv', 'w') as f:
+            writer = csv.DictWriter(f, ['name', 'catagory', 'pre'])
+            writer.writeheader()
+            writer.writerows(datas)
+
+def train(train, eval, is_eval):
+    inceptionv4 = Inceptionv4()
+
+    inputs = tf.placeholder(tf.float32, shape=(None, 299, 299, 3))
+    labels = tf.placeholder(tf.int32, shape=(None, FLAGS.num_classes))
+
+    # training data
+    inputsTrain, labelsTrain = input_fn(True, [train], params={
+        'num_epochs': 10,
         'class_num': FLAGS.num_classes,
         'batch_size': FLAGS.batch_size,
-        'buffer_size': 30,
+        'buffer_size': 70000,
         'min_scale': 0.8,
         'max_scale': 1.2,
         'height': 299,
         'width': 299,
         'ignore_label': 255,
     })
+
+    # evaluating data
+    if is_eval:
+        inputsEval, labelsEval = input_fn(True, [eval], params={
+            'num_epochs': 10,
+            'class_num': FLAGS.num_classes,
+            'batch_size': FLAGS.batch_size,
+            'buffer_size': 17858,
+            'min_scale': 0.8,
+            'max_scale': 1.2,
+            'height': 299,
+            'width': 299,
+            'ignore_label': 255,
+        })
 
     logits, end_points = inceptionv4.buildNet(inputs,
                                               num_classes=(FLAGS.num_classes - FLAGS.labels_offset),
@@ -733,8 +822,9 @@ def train():
     #     loss = loss + FLAGS.weight_decay * tf.add_n([tf.nn.l2_loss(v) for v in train_var_list])
     tf.summary.scalar('loss', loss)
 
+    # set optimizer
     global_step = tf.train.get_or_create_global_step()
-    learning_rate = inceptionv4.configure_learning_rate(200000, global_step)
+    learning_rate = inceptionv4.configure_learning_rate(70000, global_step)
     optimizer = inceptionv4.configure_optimizer(learning_rate)
 
     # Batch norm requires update ops to be added as a dependency to the train_op
@@ -765,16 +855,27 @@ def train():
         # print(global_step)
 
         itr = 0
-        train_writer = tf.summary.FileWriter(FLAGS.model_dir, sess.graph)
+        train_writer = tf.summary.FileWriter(FLAGS.model_dir+'/log7', sess.graph)
+        if is_eval:
+            eval_writer = tf.summary.FileWriter(FLAGS.model_dir+'/log/eval', sess.graph)
         while True:
 
             try:
+                inputsnNp, labelsNp = sess.run([inputsTrain, labelsTrain])
+
                 tensors = [trainOp, merge_summary, global_step]
-                _, train_summary, itr = sess.run(tensors)
+                _, train_summary, itr = sess.run(tensors,feed_dict={inputs:inputsnNp,
+                                                                    labels:labelsNp})
                 logger.info("itr: {}".format(itr))
 
                 train_writer.add_summary(train_summary, itr)
                 logger.info("summary written...")
+
+                if is_eval and itr % 10 == 0:
+                    inputsnNp, labelsNp = sess.run([inputsEval, labelsEval])
+                    _, eval_summary = sess.run([loss, merge_summary],feed_dict={inputs:inputsnNp,
+                                                                                labels:labelsNp})
+                    eval_writer.add_summary(eval_summary, itr)
 
             except tf.errors.OutOfRangeError:
                 logger.warning('Maybe OutOfRangeError...')
@@ -783,9 +884,151 @@ def train():
             if (itr % 500 == 0):
                 saver.save(sess, FLAGS.model_dir + '/model.ckpt', itr)
 
+def initializingModel(tfrecord):
+    inceptionv4 = Inceptionv4()
+
+    # inputs = tf.placeholder(tf.float32, shape=(None, 299, 299, 3))
+    # labels = tf.placeholder(tf.int32, shape=(None, FLAGS.num_classes))
+    inputs, labels = input_fn(True, [tfrecord], params={
+        'num_epochs': 1,
+        'class_num': FLAGS.num_classes,
+        'batch_size': FLAGS.batch_size,
+        'buffer_size': 30,
+        'min_scale': 0.8,
+        'max_scale': 1.2,
+        'height': 299,
+        'width': 299,
+        'ignore_label': 255,
+    })
+
+    logits, end_points = inceptionv4.buildNet(inputs,
+                                              num_classes=(FLAGS.num_classes - FLAGS.labels_offset),
+                                              weight_decay=FLAGS.weight_decay,
+                                              is_training=True)
+
+    loss = tf.losses.softmax_cross_entropy(labels, logits,
+                                           label_smoothing=FLAGS.label_smoothing)
+
+    train_var_list = []
+    if not FLAGS.freeze_batch_norm:
+        train_var_list = [v for v in tf.trainable_variables()]
+    else:
+        train_var_list = [v for v in tf.trainable_variables()
+                          if 'beta' not in v.name and 'gamma' not in v.name]
+
+    # Add weight decay to the loss.
+    with tf.variable_scope("total_loss"):
+        loss = loss + FLAGS.weight_decay * tf.add_n([tf.nn.l2_loss(v) for v in train_var_list])
+    tf.summary.scalar('loss', loss)
+
+
+    if True:
+        exclude = ['InceptionV4/Logits/Logits', 'global_step']
+        variables_to_restore = tf.contrib.slim.get_variables_to_restore(exclude=exclude)
+    # print([v.name.split(':')[0] for v in variables_to_restore])
+    # tf.train.init_from_checkpoint(FLAGS.model_dir+'/model.ckpt',
+    #                               {v.name.split(':')[0]: v for v in variables_to_restore})
+
+    merge_summary = tf.summary.merge_all()
+    with tf.Session() as sess:
+        # sess.run(tf.global_variables_initializer())
+        # tf.local_variables_initializer().run()
+        saver = tf.train.Saver(variables_to_restore)
+        ckpt = tf.train.get_checkpoint_state(FLAGS.model_dir)
+        if ckpt and ckpt.model_checkpoint_path:
+            saver.restore(sess, ckpt.model_checkpoint_path)
+            logger.info("Model restored...")
+
+        # set optimizer
+        global_step = tf.train.get_or_create_global_step()
+        learning_rate = inceptionv4.configure_learning_rate(7000, global_step)
+        optimizer = inceptionv4.configure_optimizer(learning_rate)
+
+        # Batch norm requires update ops to be added as a dependency to the train_op
+        update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+        with tf.control_dependencies(update_ops):
+            trainOp = optimizer.minimize(loss, global_step=global_step)
+
+        sess.run(tf.global_variables_initializer())
+        saver = tf.train.Saver()
+        saver.save(sess, 'model/model.ckpt', 0)
+        # print(global_step)
+
+def freezingModel():
+    inceptionv4 = Inceptionv4()
+
+    inputs = tf.placeholder(tf.float32, shape=(None, 299, 299, 3))
+
+
+    logits, end_points = inceptionv4.buildNet(inputs,
+                                              num_classes=(FLAGS.num_classes - FLAGS.labels_offset),
+                                              weight_decay=FLAGS.weight_decay,
+                                              is_training=False)
+
+
+    with tf.Session() as sess:
+
+        saver = tf.train.Saver()
+        ckpt = tf.train.get_checkpoint_state(FLAGS.model_dir)
+        if ckpt and ckpt.model_checkpoint_path:
+            saver.restore(sess, ckpt.model_checkpoint_path)
+            logger.info("Model restored...")
+
+        itr = 0
+        train_writer = tf.summary.FileWriter(FLAGS.model_dir, sess.graph)
+
+
+
+
+        graph_def = sess.graph.as_graph_def()
+        output_graph_def = graph_util.convert_variables_to_constants(
+            sess,
+            graph_def,
+            ['InceptionV4/Logits/Predictions']  # We split on comma for convenience
+        )
+
+        # Finally we serialize and dump the output graph to the filesystem
+        with tf.gfile.GFile('frozen.pb', "wb") as f:
+            f.write(output_graph_def.SerializeToString())
+        print("%d ops in the final graph." % len(output_graph_def.node))
+
+def printGraph(pbName):
+
+    segmentDetectionGraph = tf.Graph()
+
+    with segmentDetectionGraph.as_default():
+        odGraphDef = tf.GraphDef()
+
+        with tf.gfile.GFile(pbName, 'rb') as fid:
+            serializedGraph = fid.read()
+            odGraphDef.ParseFromString(serializedGraph)
+            tf.import_graph_def(odGraphDef, name='')
+
+    # names = [op.name for op in segmentDetectionGraph.get_operations()]
+    index = 0
+    for op in segmentDetectionGraph.get_operations():
+        # if 'detect' in op.name:
+        print(op.name)
+
+        # index = index + 1
+        # if index >20:
+        #     break
+
+
 if __name__ == '__main__':
 
-    test()
+    # test model
+    # test()
+    # testSemir()
 
-    # train()
+    # init model
+    # initializingModel('miniTrain.record')
+
+    # train model
+    train('miniTrain.record', 'fashionDataEval.record', False)
+
+    # freeze model
+    # freezingModel()
+
+    # printGraph('frozen.pb')
 
