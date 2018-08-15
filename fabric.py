@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -16,15 +17,19 @@ logger = logging.getLogger(__name__)
 slim = tf.contrib.slim
 
 tf.app.flags.DEFINE_integer(
-    'color_classes', 7,
+    'color_num', 11,
     'The color class number')
 
 tf.app.flags.DEFINE_integer(
-    'material_classes', 7,
+    'material_num', 5,
     'The material class number')
 
 tf.app.flags.DEFINE_integer(
-    'style_classes', 7,
+    'style_num', 5,
+    'The style class number')
+
+tf.app.flags.DEFINE_integer(
+    'train_data_num', 830,
     'The style class number')
 
 tf.app.flags.DEFINE_boolean('freeze_batch_norm', True,
@@ -134,7 +139,7 @@ tf.app.flags.DEFINE_string(
     'Specifies how the learning rate is decayed. One of "fixed", "exponential",'
     ' or "polynomial"')
 
-tf.app.flags.DEFINE_float('learning_rate', 0.001, 'Initial learning rate.')
+tf.app.flags.DEFINE_float('learning_rate', 0.1, 'Initial learning rate.')
 
 tf.app.flags.DEFINE_float(
     'end_learning_rate', 0.00001,
@@ -348,7 +353,6 @@ class Inceptionv4:
 
     def inception_v4_base(self, inputs, final_endpoint='Mixed_7d', scope=None):
         """Creates the Inception V4 network up to the given final endpoint.
-
         Args:
           inputs: a 4-D tensor of size [batch_size, height, width, 3].
           final_endpoint: specifies the endpoint to construct the network up to.
@@ -358,11 +362,9 @@ class Inceptionv4:
             'Mixed_6f', 'Mixed_6g', 'Mixed_6h', 'Mixed_7a', 'Mixed_7b', 'Mixed_7c',
             'Mixed_7d']
           scope: Optional variable_scope.
-
         Returns:
           logits: the logits outputs of the model.
           end_points: the set of end_points from the inception model.
-
         Raises:
           ValueError: if final_endpoint is not set to one of the predefined values,
         """
@@ -453,6 +455,7 @@ class Inceptionv4:
                     block_scope = 'Mixed_7' + chr(ord('b') + idx)
                     net = self.block_inception_c(net, block_scope)
                     if add_and_check_final(block_scope, net): return net, end_points
+
         raise ValueError('Unknown final endpoint %s' % final_endpoint)
 
     def inception_arg_scope(self, weight_decay=0.00004,
@@ -461,7 +464,6 @@ class Inceptionv4:
                             batch_norm_epsilon=0.001,
                             activation_fn=tf.nn.relu):
         """Defines the default arg scope for inception models.
-
         Args:
           weight_decay: The weight decay to use for regularizing the model.
           use_batch_norm: "If `True`, batch_norm is applied after each convolution.
@@ -469,7 +471,6 @@ class Inceptionv4:
           batch_norm_epsilon: Small float added to variance to avoid dividing by zero
             in batch norm.
           activation_fn: Activation function for conv2d.
-
         Returns:
           An `arg_scope` to use for the inception models.
         """
@@ -502,14 +503,11 @@ class Inceptionv4:
 
     def configure_learning_rate(self, num_samples_per_epoch, global_step):
         """Configures the learning rate.
-
         Args:
           num_samples_per_epoch: The number of samples in each epoch of training.
           global_step: The global_step tensor.
-
         Returns:
           A `Tensor` representing the learning rate.
-
         Raises:
           ValueError: if
         """
@@ -541,13 +539,10 @@ class Inceptionv4:
 
     def configure_optimizer(self, learning_rate):
         """Configures the optimizer used for training.
-
         Args:
           learning_rate: A scalar or `Tensor` learning rate.
-
         Returns:
           An instance of an optimizer.
-
         Raises:
           ValueError: if FLAGS.optimizer is not recognized.
         """
@@ -602,48 +597,50 @@ class Inceptionv4:
             with slim.arg_scope([slim.batch_norm, slim.dropout],
                                 is_training=is_training):
                 net, end_points = self.inception_v4_base(inputs, scope=scope,
-                                                         final_endpoint='Mixed_6h')
+                                                         final_endpoint='Mixed_7d')
 
                 with slim.arg_scope([slim.conv2d, slim.max_pool2d, slim.avg_pool2d],
                                     stride=1, padding='SAME'):
-                    with tf.variable_scope('color'):
-                        color_logits = end_points['Mixed_3a']
-                        with tf.variable_scope('Branch_0'):
-                            branch_0 = slim.conv2d(color_logits, 64, [1, 1], scope='Conv2d_0a_1x1')
-                            branch_0 = slim.conv2d(branch_0, 96, [3, 3], padding='VALID',
-                                                   scope='Conv2d_1a_3x3')
-                        with tf.variable_scope('Branch_1'):
-                            branch_1 = slim.conv2d(color_logits, 64, [1, 1], scope='Conv2d_0a_1x1')
-                            branch_1 = slim.conv2d(branch_1, 64, [1, 7], scope='Conv2d_0b_1x7')
-                            branch_1 = slim.conv2d(branch_1, 64, [7, 1], scope='Conv2d_0c_7x1')
-                            branch_1 = slim.conv2d(branch_1, 96, [3, 3], padding='VALID',
-                                                   scope='Conv2d_1a_3x3')
-                        color_logits = tf.concat(axis=3, values=[branch_0, branch_1])
-                        color_logits = slim.avg_pool2d(color_logits, [5, 5], stride=3,
-                                                       padding='VALID',
-                                                       scope='AvgPool_1a_5x5')
-                        color_logits = slim.conv2d(color_logits, 128, [1, 1],
-                                                   scope='Conv2d_1b_1x1')
-                        color_logits = slim.conv2d(color_logits, 768,
-                                                   color_logits.get_shape()[1:3],
-                                                   padding='VALID', scope='Conv2d_2a')
-                        color_logits = slim.flatten(color_logits)
-                        color_logits = slim.fully_connected(color_logits, color_classes,
-                                                            activation_fn=None,
-                                                            scope='color_logits')
-                        end_points['colorLogits'] = color_logits
-                        end_points['colorPredictions'] = tf.nn.softmax(color_logits,
-                                                                       name='colorPredictions')
-
+                    # with tf.variable_scope('color'):
+                    #     color_logits = end_points['Mixed_3a']
+                    #     # with tf.variable_scope('Branch_0'):
+                    #     #     branch_0 = slim.conv2d(color_logits, 64, [1, 1], scope='Conv2d_0a_1x1')
+                    #     #     branch_0 = slim.conv2d(branch_0, 96, [3, 3], padding='VALID',
+                    #     #                            scope='Conv2d_1a_3x3')
+                    #     # with tf.variable_scope('Branch_1'):
+                    #     #     branch_1 = slim.conv2d(color_logits, 64, [1, 1], scope='Conv2d_0a_1x1')
+                    #     #     branch_1 = slim.conv2d(branch_1, 64, [1, 7], scope='Conv2d_0b_1x7')
+                    #     #     branch_1 = slim.conv2d(branch_1, 64, [7, 1], scope='Conv2d_0c_7x1')
+                    #     #     branch_1 = slim.conv2d(branch_1, 96, [3, 3], padding='VALID',
+                    #     #                            scope='Conv2d_1a_3x3')
+                    #     # color_logits = tf.concat(axis=3, values=[branch_0, branch_1])
+                    #     color_logits = slim.avg_pool2d(color_logits, [5, 5], stride=3,
+                    #                                    padding='VALID',
+                    #                                    scope='AvgPool_1a_5x5')
+                    #     color_logits = slim.conv2d(color_logits, 128, [1, 1],
+                    #                                scope='Conv2d_1b_1x1')
+                    #     color_logits = slim.conv2d(color_logits, 768,
+                    #                                color_logits.get_shape()[1:3],
+                    #                                padding='VALID', scope='Conv2d_2a')
+                    #     color_logits = slim.flatten(color_logits)
+                    #     color_logits = slim.fully_connected(color_logits, color_classes,
+                    #                                         activation_fn=None,
+                    #                                         scope='color_logits')
+                    #     end_points['colorLogits'] = color_logits
+                    #     end_points['colorPredictions'] = tf.nn.softmax(color_logits,
+                    #                                                    name='colorPredictions')
+                    #
                     with tf.variable_scope('material'):
                         material_logits = end_points['Mixed_6h']
-                        material_logits = self.block_reduction_b(material_logits, 'Mixed_7a')
 
-                        # 8 x 8 x 1536
-                        # 3 x Inception-C blocks
-                        for idx in range(3):
-                            block_scope = 'Mixed_7' + chr(ord('b') + idx)
-                            material_logits = self.block_inception_c(material_logits, block_scope)
+                        # material_logits = slim.avg_pool2d(material_logits, [5, 5], stride=3,
+                        #                                   padding='VALID',
+                        #                                   scope='AvgPool_1a_5x5')
+                        # material_logits = slim.conv2d(material_logits, 128, [1, 1],
+                        #                               scope='Conv2d_1b_1x1')
+                        # material_logits = slim.conv2d(material_logits, 768,
+                        #                               material_logits.get_shape()[1:3],
+                        #                               padding='VALID', scope='Conv2d_2a')
 
                         kernel_size = material_logits.get_shape()[1:3]
                         if kernel_size.is_fully_defined():
@@ -665,41 +662,43 @@ class Inceptionv4:
                         end_points['materialPredictions'] = tf.nn.softmax(material_logits,
                                                                           name='materialPredictions')
 
-                    with tf.variable_scope('style'):
-                        style_logits = end_points['Mixed_6h']
-                        style_logits = self.block_reduction_b(style_logits, 'Mixed_7a')
-
-                        # 8 x 8 x 1536
-                        # 3 x Inception-C blocks
-                        for idx in range(3):
-                            block_scope = 'Mixed_7' + chr(ord('b') + idx)
-                            style_logits = self.block_inception_c(style_logits, block_scope)
-
-                        kernel_size = style_logits.get_shape()[1:3]
-                        if kernel_size.is_fully_defined():
-                            style_logits = slim.avg_pool2d(style_logits, kernel_size,
-                                                           padding='VALID',
-                                                           scope='AvgPool_1a')
-                        else:
-                            style_logits = tf.reduce_mean(style_logits, [1, 2],
-                                                          keepdims=True,
-                                                          name='global_pool')
-                        # 1 x 1 x 1536
-                        style_logits = slim.dropout(style_logits, dropout_keep_prob,
-                                                    scope='Dropout_1b')
-                        style_logits = slim.flatten(style_logits, scope='styleLogitsFlatten')
-                        style_logits = slim.fully_connected(style_logits, style_classes,
-                                                            activation_fn=None,
-                                                            scope='styleLogits')
-                        end_points['styleLogits'] = style_logits
-                        end_points['stylePredictions'] = tf.nn.softmax(style_logits,
-                                                                       name='stylePredictions')
+                    # with tf.variable_scope('style'):
+                    #     style_logits = end_points['Mixed_6h']
+                    #
+                    #     # style_logits = slim.avg_pool2d(style_logits, [5, 5], stride=3,
+                    #     #                                padding='VALID',
+                    #     #                                scope='AvgPool_1a_5x5')
+                    #     # style_logits = slim.conv2d(style_logits, 128, [1, 1],
+                    #     #                            scope='Conv2d_1b_1x1')
+                    #     # style_logits = slim.conv2d(style_logits, 768,
+                    #     #                            style_logits.get_shape()[1:3],
+                    #     #                            padding='VALID', scope='Conv2d_2a')
+                    #
+                    #     kernel_size = style_logits.get_shape()[1:3]
+                    #     if kernel_size.is_fully_defined():
+                    #         style_logits = slim.avg_pool2d(style_logits, kernel_size,
+                    #                                        padding='VALID',
+                    #                                        scope='AvgPool_1a')
+                    #     else:
+                    #         style_logits = tf.reduce_mean(style_logits, [1, 2],
+                    #                                       keepdims=True,
+                    #                                       name='global_pool')
+                    #     # 1 x 1 x 1536
+                    #     style_logits = slim.dropout(style_logits, dropout_keep_prob,
+                    #                                 scope='Dropout_1b')
+                    #     style_logits = slim.flatten(style_logits, scope='styleLogitsFlatten')
+                    #     style_logits = slim.fully_connected(style_logits, style_classes,
+                    #                                         activation_fn=None,
+                    #                                         scope='styleLogits')
+                    #     end_points['styleLogits'] = style_logits
+                    #     end_points['stylePredictions'] = tf.nn.softmax(style_logits,
+                    #                                                    name='stylePredictions')
 
             return end_points
 
 def test():
 
-    img = Image.open('/home/lingdi/project/test/29.jpg')
+    img = Image.open('/home/lingdi/project/fabricImages/fabric/632.jpg')
     img = img.convert('RGB')
     img = resize(img, 299, 299)
     img.show('')
@@ -709,6 +708,7 @@ def test():
     G = G - 116.779
     B = B - 103.939
     img = cv2.merge([R, G, B])
+
     # img = mean_image_subtraction(img)
     img = np.expand_dims(img, axis=0)
 
@@ -716,46 +716,55 @@ def test():
 
     inputs = tf.placeholder(tf.float32, shape=(None, 299, 299, 3))
 
-    logits, end_points = inceptionv4.buildNet(inputs,
-                                              num_classes=(FLAGS.num_classes - FLAGS.labels_offset),
-                                              weight_decay=FLAGS.weight_decay,
-                                              is_training=True)
+    end_points = inceptionv4.buildNet(inputs,
+                                      color_classes=FLAGS.color_num,
+                                      material_classes=FLAGS.material_num,
+                                      style_classes=FLAGS.style_num,
+                                      weight_decay=FLAGS.weight_decay,
+                                      is_training=False)
     with tf.Session() as sess:
         saver = tf.train.Saver()
         ckpt = tf.train.get_checkpoint_state(FLAGS.model_dir)
         saver.restore(sess, ckpt.model_checkpoint_path)
         logger.info("Model restored...")
 
-        tensors = [end_points['colorPredictions'], end_points['materialPredictions'],
-                   end_points['stylePredictions']]
-        color_pre, material_pre, style_pre = sess.run(tensors,feed_dict={inputs:img})
-        logger.debug('color class: {}, material class: {}, style class: {}'
-                     .format(np.argmax(color_pre), np.argmax(material_pre), np.argmax(style_pre)))
+        # tensors = [end_points['colorPredictions'], end_points['materialPredictions'],
+        #            end_points['stylePredictions']]
+        # color_pre, material_pre, style_pre = sess.run(tensors, feed_dict={inputs: img})
+        # logger.debug('color class: {}, material class: {}, style class: {}'
+        #              .format(np.argmax(color_pre), np.argmax(material_pre), np.argmax(style_pre)))
+        tensors = [end_points['stylePredictions']]
+        style_pre = sess.run(tensors,feed_dict={inputs:img})
+        logger.debug('style class: {}'.format(np.argmax(style_pre)))
 
-        print(color_pre)
-        print(np.argmax(color_pre))
-        print(material_pre)
-        print(np.argmax(material_pre))
+        colorList = ['black', 'gray', 'white', 'red', 'yellow', 'blue', 'pink', 'purple', 'green',
+                     'orange', 'brown']
+        materialList = ['cotton', 'linen', 'silk', 'wool', 'blended']
+        styleList = ['solidcolor', 'stripe', 'geometricpatterns', 'lattice', 'other']
+        # print(color_pre)
+        # print(colorList[np.argmax(color_pre)])
+        # print(material_pre)
+        # print(materialList[np.argmax(material_pre)])
         print(style_pre)
-        print(np.argmax(style_pre))
+        print(styleList[np.argmax(style_pre)])
 
-def train(train, eval, is_eval):
+def train(train):
     inceptionv4 = Inceptionv4()
 
-    inputs = tf.placeholder(tf.float32, shape=(None, 299, 299, 3))
-    color_labels = tf.placeholder(tf.int32, shape=(None, FLAGS.color_classes))
-    material_labels = tf.placeholder(tf.int32, shape=(None, FLAGS.material_classes))
-    style_labels = tf.placeholder(tf.int32, shape=(None, FLAGS.style_classes))
+    # inputs = tf.placeholder(tf.float32, shape=(None, 299, 299, 3))
+    # color_labels = tf.placeholder(tf.int32, shape=(None, FLAGS.color_num))
+    # material_labels = tf.placeholder(tf.int32, shape=(None, FLAGS.material_num))
+    # style_labels = tf.placeholder(tf.int32, shape=(None, FLAGS.style_num))
 
     # training data
     inputsTrain, colorLabelsTrain, \
-    materialLabelsTrain, styleLabelsTrain = input_fn(True, [train], params={
-        'num_epochs': 10,
-        'color_class_num': FLAGS.color_classes,
-        'material_class_num': FLAGS.material_classes,
-        'style_class_num': FLAGS.style_classes,
+    materialLabelsTrain, styleLabelsTrain = input_fn(True, train, params={
+        'num_epochs': 400,
+        'color_num': FLAGS.color_num,
+        'material_num': FLAGS.material_num,
+        'style_num': FLAGS.style_num,
         'batch_size': FLAGS.batch_size,
-        'buffer_size': 70000,
+        'buffer_size': FLAGS.train_data_num,
         'min_scale': 0.8,
         'max_scale': 1.2,
         'height': 299,
@@ -763,56 +772,29 @@ def train(train, eval, is_eval):
         'ignore_label': 255,
     })
 
-    # evaluating data
-    if is_eval:
-        inputsEval, colorLabelsEval, \
-        materialLabelsEval, styleLabelsEval= input_fn(True, [train], params={
-            'num_epochs': 10,
-            'color_class_num': FLAGS.color_classes,
-            'material_class_num': FLAGS.material_classes,
-            'style_class_num': FLAGS.style_classes,
-            'batch_size': FLAGS.batch_size,
-            'buffer_size': 17858,
-            'min_scale': 0.8,
-            'max_scale': 1.2,
-            'height': 299,
-            'width': 299,
-            'ignore_label': 255,
-        })
-
-    end_points = inceptionv4.buildNet(inputs,
-                                      color_classes=FLAGS.color_classes,
-                                      material_classes=FLAGS.material_classes,
-                                      style_classes=FLAGS.style_classes,
+    end_points = inceptionv4.buildNet(inputsTrain,
+                                      color_classes=FLAGS.color_num,
+                                      material_classes=FLAGS.material_num,
+                                      style_classes=FLAGS.style_num,
                                       weight_decay=FLAGS.weight_decay,
                                       is_training=True)
 
-    color_loss = tf.losses.softmax_cross_entropy(color_labels, end_points['colorLogits'],
-                                                 label_smoothing=FLAGS.label_smoothing)
-    material_loss = tf.losses.softmax_cross_entropy(material_labels, end_points['materialLogits'],
+    # color_loss = tf.losses.softmax_cross_entropy(colorLabelsTrain, end_points['colorLogits'],
+    #                                              label_smoothing=FLAGS.label_smoothing)
+    material_loss = tf.losses.softmax_cross_entropy(materialLabelsTrain, end_points['materialLogits'],
                                                     label_smoothing=FLAGS.label_smoothing)
-    style_loss = tf.losses.softmax_cross_entropy(style_labels, end_points['styleLogits'],
-                                                 label_smoothing=FLAGS.label_smoothing)
-    loss = color_loss + material_loss + style_loss
+    # style_loss = tf.losses.softmax_cross_entropy(styleLabelsTrain, end_points['styleLogits'],
+    #                                              label_smoothing=FLAGS.label_smoothing)
+    loss = material_loss
 
-    train_var_list=[]
-    if not FLAGS.freeze_batch_norm:
-        train_var_list = [v for v in tf.trainable_variables()]
-    else:
-        train_var_list = [v for v in tf.trainable_variables()
-                          if 'beta' not in v.name and 'gamma' not in v.name]
-
-    # Add weight decay to the loss.
-    # with tf.variable_scope("total_loss"):
-    #     loss = loss + FLAGS.weight_decay * tf.add_n([tf.nn.l2_loss(v) for v in train_var_list])
-    tf.summary.scalar('color_loss', color_loss)
+    # tf.summary.scalar('color_loss', color_loss)
     tf.summary.scalar('material_loss', material_loss)
-    tf.summary.scalar('style_loss', style_loss)
+    # tf.summary.scalar('style_loss', style_loss)
     tf.summary.scalar('loss', loss)
 
     # set optimizer
     global_step = tf.train.get_or_create_global_step()
-    learning_rate = inceptionv4.configure_learning_rate(70000, global_step)
+    learning_rate = inceptionv4.configure_learning_rate(FLAGS.train_data_num, global_step)
     optimizer = inceptionv4.configure_optimizer(learning_rate)
 
     # Batch norm requires update ops to be added as a dependency to the train_op
@@ -843,36 +825,20 @@ def train(train, eval, is_eval):
         # print(global_step)
 
         itr = 0
-        train_writer = tf.summary.FileWriter(FLAGS.model_dir+'/log7', sess.graph)
-        if is_eval:
-            eval_writer = tf.summary.FileWriter(FLAGS.model_dir+'/log/eval', sess.graph)
+        train_writer = tf.summary.FileWriter(FLAGS.model_dir, sess.graph)
         while True:
 
             try:
-                inputsnNp, colorlabelsNp,\
-                materialLabelsNp, styleLabelsNp = sess.run([inputsTrain, colorLabelsTrain,
-                                                            materialLabelsTrain, styleLabelsTrain])
+                # inputsnNp, colorlabelsNp,\
+                # materialLabelsNp, styleLabelsNp = sess.run([inputsTrain, colorLabelsTrain,
+                #                                             materialLabelsTrain, styleLabelsTrain])
 
-                tensors = [trainOp, merge_summary, global_step]
-                _, train_summary, itr = sess.run(tensors,feed_dict={inputs:inputsnNp,
-                                                                    color_labels:colorlabelsNp,
-                                                                    material_labels:materialLabelsNp,
-                                                                    style_labels:styleLabelsNp})
+                tensors = [trainOp, merge_summary, global_step, loss]
+                _, train_summary, itr, total_loss = sess.run(tensors)
                 logger.info("itr: {}".format(itr))
 
                 train_writer.add_summary(train_summary, itr)
-                logger.info("summary written...")
-
-                if is_eval and itr % 10 == 0:
-                    inputsnNp, colorlabelsNp, \
-                    materialLabelsNp, styleLabelsNp = sess.run([inputsTrain, colorLabelsEval,
-                                                                materialLabelsEval, styleLabelsEval])
-                    _, eval_summary = sess.run([loss, merge_summary],
-                                               feed_dict={inputs:inputsnNp,
-                                                          color_labels:colorlabelsNp,
-                                                          material_labels:materialLabelsNp,
-                                                          style_labels:styleLabelsNp})
-                    eval_writer.add_summary(eval_summary, itr)
+                logger.info("loss {}, summary written...".format(total_loss))
 
             except tf.errors.OutOfRangeError:
                 logger.warning('Maybe OutOfRangeError...')
@@ -889,7 +855,9 @@ def initializingModel(tfrecord):
     inputs, color_labels, material_labels, style_labels = input_fn(True, [tfrecord],
                                                                    params={
                                                                        'num_epochs': 1,
-                                                                       'class_num': FLAGS.num_classes,
+                                                                       'color_num': FLAGS.color_num,
+                                                                       'material_num': FLAGS.material_num,
+                                                                       'style_num': FLAGS.style_num,
                                                                        'batch_size': FLAGS.batch_size,
                                                                        'buffer_size': 30,
                                                                        'min_scale': 0.8,
@@ -900,32 +868,19 @@ def initializingModel(tfrecord):
                                                                    })
 
     end_points = inceptionv4.buildNet(inputs,
-                                      color_classes=FLAGS.color_classes,
-                                      material_classes=FLAGS.material_classes,
-                                      style_classes=FLAGS.style_classes,
+                                      color_classes=FLAGS.color_num,
+                                      material_classes=FLAGS.material_num,
+                                      style_classes=FLAGS.style_num,
                                       weight_decay=FLAGS.weight_decay,
                                       is_training=True)
 
-    color_loss = tf.losses.softmax_cross_entropy(color_labels, end_points['colorLogits'],
-                                                 label_smoothing=FLAGS.label_smoothing)
+    # color_loss = tf.losses.softmax_cross_entropy(color_labels, end_points['colorLogits'],
+    #                                              label_smoothing=FLAGS.label_smoothing)
     material_loss = tf.losses.softmax_cross_entropy(material_labels, end_points['materialLogits'],
                                                     label_smoothing=FLAGS.label_smoothing)
-    style_loss = tf.losses.softmax_cross_entropy(style_labels, end_points['styleLogits'],
-                                                 label_smoothing=FLAGS.label_smoothing)
-    loss = color_loss + material_loss + style_loss
-
-    train_var_list = []
-    if not FLAGS.freeze_batch_norm:
-        train_var_list = [v for v in tf.trainable_variables()]
-    else:
-        train_var_list = [v for v in tf.trainable_variables()
-                          if 'beta' not in v.name and 'gamma' not in v.name]
-
-    # Add weight decay to the loss.
-    with tf.variable_scope("total_loss"):
-        loss = loss + FLAGS.weight_decay * tf.add_n([tf.nn.l2_loss(v) for v in train_var_list])
-    tf.summary.scalar('loss', loss)
-
+    # style_loss = tf.losses.softmax_cross_entropy(style_labels, end_points['styleLogits'],
+    #                                              label_smoothing=FLAGS.label_smoothing)
+    loss = material_loss
 
     if True:
         exclude = ['InceptionV4/color',
@@ -937,7 +892,6 @@ def initializingModel(tfrecord):
     # tf.train.init_from_checkpoint(FLAGS.model_dir+'/model.ckpt',
     #                               {v.name.split(':')[0]: v for v in variables_to_restore})
 
-    merge_summary = tf.summary.merge_all()
     with tf.Session() as sess:
         # sess.run(tf.global_variables_initializer())
         # tf.local_variables_initializer().run()
@@ -949,7 +903,7 @@ def initializingModel(tfrecord):
 
         # set optimizer
         global_step = tf.train.get_or_create_global_step()
-        learning_rate = inceptionv4.configure_learning_rate(7000, global_step)
+        learning_rate = inceptionv4.configure_learning_rate(FLAGS.train_data_num, global_step)
         optimizer = inceptionv4.configure_optimizer(learning_rate)
 
         # Batch norm requires update ops to be added as a dependency to the train_op
@@ -969,7 +923,9 @@ def freezingModel():
 
 
     end_points = inceptionv4.buildNet(inputs,
-                                      num_classes=(FLAGS.num_classes - FLAGS.labels_offset),
+                                      color_classes=FLAGS.color_num,
+                                      material_classes=FLAGS.material_num,
+                                      style_classes=FLAGS.style_num,
                                       weight_decay=FLAGS.weight_decay,
                                       is_training=False)
 
@@ -992,8 +948,8 @@ def freezingModel():
         output_graph_def = graph_util.convert_variables_to_constants(
             sess,
             graph_def,
-            ['InceptionV4/color/colorPredictions',
-             'InceptionV4/material/materialPredictions',
+            [#'InceptionV4/color/colorPredictions',
+             #'InceptionV4/material/materialPredictions',
              'InceptionV4/style/stylePredictions']
         )
 
@@ -1032,13 +988,12 @@ if __name__ == '__main__':
     # testSemir()
 
     # init model
-    # initializingModel('miniTrain.record')
+    # initializingModel('fabric.record')
 
     # train model
-    train('miniTrain.record', 'fashionDataEval.record', False)
+    train(['fabric.record'])
 
     # freeze model
     # freezingModel()
 
     # printGraph('frozen.pb')
-

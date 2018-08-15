@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -9,6 +10,7 @@ import cv2
 from PIL import Image
 import pandas as pd
 import csv
+import json
 import logging
 logging.basicConfig(level=10, filename='train.log')
 logger = logging.getLogger(__name__)
@@ -16,7 +18,7 @@ logger = logging.getLogger(__name__)
 slim = tf.contrib.slim
 
 tf.app.flags.DEFINE_integer(
-    'num_classes', 7,
+    'num_classes', 22,
     'The class number')
 
 tf.app.flags.DEFINE_boolean('freeze_batch_norm', True,
@@ -126,7 +128,7 @@ tf.app.flags.DEFINE_string(
     'Specifies how the learning rate is decayed. One of "fixed", "exponential",'
     ' or "polynomial"')
 
-tf.app.flags.DEFINE_float('learning_rate', 0.001, 'Initial learning rate.')
+tf.app.flags.DEFINE_float('learning_rate', 0.01, 'Initial learning rate.')
 
 tf.app.flags.DEFINE_float(
     'end_learning_rate', 0.00001,
@@ -659,8 +661,12 @@ class Inceptionv4:
         return optimizer
 
 def test():
+    catagory = ['茄克', '毛衫', '短袖T恤', '长袖T恤', '棉服', '长袖衬衫', '中袖衬衫',
+                '卫衣', '风衣', '休闲西服', '马甲', '羽绒服', '开衫', '牛仔长裤', '牛仔中裤',
+                '牛仔短裤', '连衣裙', '裙子', '休闲长裤', '休闲中裤', '休闲短裤', '打底裤']
 
-    img = Image.open('/home/lingdi/project/test/29.jpg')
+    # img = Image.open('/home/lingdi/project/test/21.jpg')
+    img = Image.open('/home/lingdi/project/semir_data/dataset/18/休闲长裤_bottom/26.jpg')
     img = img.convert('RGB')
     img = resize(img, 299, 299)
     img.show('')
@@ -680,7 +686,7 @@ def test():
     logits, end_points = inceptionv4.buildNet(inputs,
                                               num_classes=(FLAGS.num_classes - FLAGS.labels_offset),
                                               weight_decay=FLAGS.weight_decay,
-                                              is_training=True)
+                                              is_training=False)
 
     print(tf.contrib.slim.get_variables_to_restore(exclude=[]))
     w = tf.get_default_graph().get_tensor_by_name('InceptionV4/Conv2d_1a_3x3/BatchNorm/beta:0')
@@ -694,10 +700,53 @@ def test():
         pre, w = sess.run(tensors,feed_dict={inputs:img})
         logger.debug('class :{}'.format(np.argmax(pre)))
 
-        print(np.argmax(pre))
+        print(catagory[np.argmax(pre)])
         print(pre)
 
-def testSemir():
+def testSemir(seg):
+    def getCatagory(dict):
+        for key in dict.keys():
+            if dict[key] ==True:
+                return key
+
+    def getCatagoryID(c):
+        catagory = ['茄克', '毛衫', '短袖T恤', '长袖T恤', '棉服', '长袖衬衫', '中袖衬衫',
+                    '卫衣', '风衣', '休闲西服', '马甲', '羽绒服', '开衫', '牛仔长裤', '牛仔中裤',
+                    '牛仔短裤', '连衣裙', '裙子', '休闲长裤', '休闲中裤', '休闲短裤', '打底裤']
+        return catagory.index(c)
+
+    def id2catagory(id):
+        catagory = ['茄克', '毛衫', '短袖T恤', '长袖T恤', '棉服', '长袖衬衫', '中袖衬衫',
+                    '卫衣', '风衣', '休闲西服', '马甲', '羽绒服', '开衫', '牛仔长裤', '牛仔中裤',
+                    '牛仔短裤', '连衣裙', '裙子', '休闲长裤', '休闲中裤', '休闲短裤', '打底裤']
+        return catagory[id]
+
+    def getCatagoryAndImage(filename, seg, c):
+        if c == '连衣裙':
+            seg = 'full'
+        else:
+            if seg == '上装':
+                seg ='top'
+            elif seg == '下装':
+                seg = 'bottom'
+
+        file_path = '/home/lingdi/project/seg/{}/'.format(seg) + filename
+
+        img = Image.open(file_path)
+
+        img = img.convert('RGB')
+        img = resize(img, 299, 299)
+        # img.show('')
+        img = np.array(img)
+        (R, G, B) = cv2.split(img)
+        R = R - 123.68
+        G = G - 116.779
+        B = B - 103.939
+        img = cv2.merge([R, G, B])
+        img = np.expand_dims(img, axis=0)
+
+        return img, getCatagoryID(c)
+
 
     inceptionv4 = Inceptionv4()
 
@@ -706,7 +755,7 @@ def testSemir():
     logits, end_points = inceptionv4.buildNet(inputs,
                                               num_classes=(FLAGS.num_classes - FLAGS.labels_offset),
                                               weight_decay=FLAGS.weight_decay,
-                                              is_training=True)
+                                              is_training=False)
 
     print(tf.contrib.slim.get_variables_to_restore(exclude=[]))
     w = tf.get_default_graph().get_tensor_by_name('InceptionV4/Conv2d_1a_3x3/BatchNorm/beta:0')
@@ -716,71 +765,168 @@ def testSemir():
         saver.restore(sess, ckpt.model_checkpoint_path)
         logger.info("Model restored...")
 
-        dict = {}
-        data = pd.read_csv('demo_clothings.csv')
+        d = {}
+        data = pd.read_csv('demo_clothings_backup.csv')
         keys = data.keys()
         for key in keys:
-            dict[key] = data[key].values
-        img_path = '/home/lingdi/project/test/images/'
-        img_names = dict['file_name']
-        catagoty = dict['category']
+            d[key] = data[key].values
 
-        length = len(img_names)
-        datas = []
+        num = 0
         acc = 0
-        for i in range(length):
+        datas = []
+        for idx, c in enumerate(d['category']):
+            filename = d['file_name'][idx]
+            seg = d['segment'][idx]
+
             try:
-                img = Image.open(img_path + img_names[i])
+                img, catagoryID = getCatagoryAndImage(filename, seg, c)
             except:
-                print('No image...')
+                print('open Image error...')
                 continue
-            img = img.convert('RGB')
-            img = resize(img, 299, 299)
-            # img.show('')
-            img = np.array(img)
-            (R, G, B) = cv2.split(img)
-            R = R - 123.68
-            G = G - 116.779
-            B = B - 103.939
-            img = cv2.merge([R, G, B])
-            img = np.expand_dims(img, axis=0)
+
+
+            num += 1
 
             tensors = [end_points['Predictions']]
             pre = sess.run(tensors, feed_dict={inputs: img})
 
             print(np.argmax(pre[0]))
+            single_dict = {}
             try:
-                if np.argmax(pre[0]) ==int(catagoty[i]):
+                if np.argmax(pre[0]) == catagoryID:
                     acc += 1
+                    single_dict['acc'] = 'true'
+                else:
+                    single_dict['acc'] = 'false'
             except:
                 print('Not contain this type...')
                 continue
 
-            single_dict = {}
-            single_dict['name'] = img_names[i]
-            single_dict['catagory'] = catagoty[i]
-            single_dict['pre'] = pre
+            pre = np.array(pre).reshape(-1)
+            single_dict['name'] = filename
+            single_dict['catagory'] = c
+            single_dict['pre'] = id2catagory(np.argmax(pre))
+            single_dict['prob'] = pre[np.argmax(pre)]
+            single_dict['vector'] = pre
 
             datas.append(single_dict)
 
-        print('acc: {}'.format(acc/length))
-        with open('a.csv', 'w') as f:
-            writer = csv.DictWriter(f, ['name', 'catagory', 'pre'])
+        print('acc: {}/{}'.format(acc, num))
+        with open('res.csv', 'w') as f:
+            writer = csv.DictWriter(f, ['acc', 'name', 'catagory', 'pre', 'prob', 'vector'])
             writer.writeheader()
             writer.writerows(datas)
 
-def train(train, eval, is_eval):
+def testSemirWithJson(seg):
+    def getCatagory(dict):
+        for key in dict.keys():
+            print(key.decode("ascii"))
+            if dict[key] ==True:
+                return key
+
+    catagory_item = ['夹克', '毛衣', '短袖体恤', '长袖体恤', '棉服', '长袖衬衫', '中袖衬衫',
+                '卫衣', '风衣', '休闲西服', '马甲', '羽绒服', '开衫', '牛仔长裤', '牛仔中裤',
+                '牛仔短裤', '连衣裙', '短裙', '休闲长裤', '休闲中裤', '休闲短裤', '打底裤']
+    def getCatagoryID(c):
+        return catagory_item.index(c)
+
+    def id2catagory(id):
+        return catagory_item[id]
+
+    inceptionv4 = Inceptionv4()
+
+    inputs = tf.placeholder(tf.float32, shape=(None, 299, 299, 3))
+
+    logits, end_points = inceptionv4.buildNet(inputs,
+                                              num_classes=(FLAGS.num_classes - FLAGS.labels_offset),
+                                              weight_decay=FLAGS.weight_decay,
+                                              is_training=False)
+
+    print(tf.contrib.slim.get_variables_to_restore(exclude=[]))
+    w = tf.get_default_graph().get_tensor_by_name('InceptionV4/Conv2d_1a_3x3/BatchNorm/beta:0')
+    with tf.Session() as sess:
+        saver = tf.train.Saver()
+        ckpt = tf.train.get_checkpoint_state(FLAGS.model_dir)
+        saver.restore(sess, ckpt.model_checkpoint_path)
+        logger.info("Model restored...")
+
+        datas = []
+        acc = 0
+        num = 0
+        img_path = '/home/lingdi/project/seg/{}/'.format(seg)
+        for root, dirs, files in os.walk(img_path):
+            for fn in files:
+                filenames = root + os.sep + fn
+                if filenames.split('.')[-1] != 'json':
+                    continue
+                with open(filenames, 'r') as load_f:
+                    load_dict = json.load(load_f, encoding='gbk')
+
+                catagory = getCatagory(load_dict['flags'])
+
+                if catagory == '__ignore__':
+                    continue
+                try:
+                    img = Image.open(img_path + load_dict['imagePath'])
+                except:
+                    print('No image...')
+                    continue
+                num += 1
+                img = img.convert('RGB')
+                img = resize(img, 299, 299)
+                # img.show('')
+                img = np.array(img)
+                (R, G, B) = cv2.split(img)
+                R = R - 123.68
+                G = G - 116.779
+                B = B - 103.939
+                img = cv2.merge([R, G, B])
+                img = np.expand_dims(img, axis=0)
+
+                tensors = [end_points['Predictions']]
+                pre = sess.run(tensors, feed_dict={inputs: img})
+
+                print(np.argmax(pre[0]))
+                single_dict = {}
+                print('=={}'.format(catagory == catagory_item[0].decode('utf-8').encode('gbk')))
+                try:
+                    print(catagory)
+                    if np.argmax(pre[0]) == int(getCatagoryID(catagory)):
+                        acc += 1
+                        single_dict['acc'] = 'true'
+                    else:
+                        single_dict['acc'] = 'false'
+                except:
+                    print('Not contain this type...')
+                    continue
+
+                pre = np.array(pre).reshape(-1)
+                single_dict['name'] = load_dict['imagePath']
+                single_dict['catagory'] = catagory
+                single_dict['pre'] = catagory_item[np.argmax(pre)]
+                single_dict['prob'] = pre[np.argmax(pre)]
+                single_dict['vector'] = pre
+
+                datas.append(single_dict)
+
+        print('{} acc: {}/{}'.format(seg, acc, num))
+        with open('seg_{}.csv'.format(seg), 'w') as f:
+            writer = csv.DictWriter(f, ['acc', 'name', 'catagory', 'pre', 'prob', 'vector'])
+            writer.writeheader()
+            writer.writerows(datas)
+
+def train(trainList, eval=None, is_eval=False):
     inceptionv4 = Inceptionv4()
 
     inputs = tf.placeholder(tf.float32, shape=(None, 299, 299, 3))
     labels = tf.placeholder(tf.int32, shape=(None, FLAGS.num_classes))
 
     # training data
-    inputsTrain, labelsTrain = input_fn(True, [train], params={
+    inputsTrain, labelsTrain = input_fn(True, trainList, params={
         'num_epochs': 10,
         'class_num': FLAGS.num_classes,
         'batch_size': FLAGS.batch_size,
-        'buffer_size': 70000,
+        'buffer_size': 22000,
         'min_scale': 0.8,
         'max_scale': 1.2,
         'height': 299,
@@ -824,7 +970,7 @@ def train(train, eval, is_eval):
 
     # set optimizer
     global_step = tf.train.get_or_create_global_step()
-    learning_rate = inceptionv4.configure_learning_rate(70000, global_step)
+    learning_rate = inceptionv4.configure_learning_rate(10000, global_step)
     optimizer = inceptionv4.configure_optimizer(learning_rate)
 
     # Batch norm requires update ops to be added as a dependency to the train_op
@@ -855,21 +1001,21 @@ def train(train, eval, is_eval):
         # print(global_step)
 
         itr = 0
-        train_writer = tf.summary.FileWriter(FLAGS.model_dir+'/log7', sess.graph)
+        train_writer = tf.summary.FileWriter(FLAGS.model_dir+'/log22', sess.graph)
         if is_eval:
-            eval_writer = tf.summary.FileWriter(FLAGS.model_dir+'/log/eval', sess.graph)
+            eval_writer = tf.summary.FileWriter(FLAGS.model_dir+'/log22/eval', sess.graph)
         while True:
 
             try:
                 inputsnNp, labelsNp = sess.run([inputsTrain, labelsTrain])
 
-                tensors = [trainOp, merge_summary, global_step]
-                _, train_summary, itr = sess.run(tensors,feed_dict={inputs:inputsnNp,
+                tensors = [trainOp, merge_summary, global_step, loss]
+                _, train_summary, itr, res_loss = sess.run(tensors,feed_dict={inputs:inputsnNp,
                                                                     labels:labelsNp})
                 logger.info("itr: {}".format(itr))
 
                 train_writer.add_summary(train_summary, itr)
-                logger.info("summary written...")
+                logger.info("loss: {}, summary written...".format(res_loss))
 
                 if is_eval and itr % 10 == 0:
                     inputsnNp, labelsNp = sess.run([inputsEval, labelsEval])
@@ -941,7 +1087,7 @@ def initializingModel(tfrecord):
 
         # set optimizer
         global_step = tf.train.get_or_create_global_step()
-        learning_rate = inceptionv4.configure_learning_rate(7000, global_step)
+        learning_rate = inceptionv4.configure_learning_rate(22000, global_step)
         optimizer = inceptionv4.configure_optimizer(learning_rate)
 
         # Batch norm requires update ops to be added as a dependency to the train_op
@@ -1014,21 +1160,59 @@ def printGraph(pbName):
         # if index >20:
         #     break
 
+def accAndRecall():
+    import matplotlib.pyplot as plt
+    d = {}
+    data = pd.read_csv('res.csv')
+    keys = data.keys()
+    for key in keys:
+        d[key] = data[key].values
+
+    total_num = len(d['prob'])
+    acc = []
+    recall = []
+    for idx in range(50):
+        threshold = idx * 0.02
+        acc_num = 0
+        num = 0
+        for i, prob in enumerate(d['prob']):
+            if prob > threshold and d['acc'][i]:
+                acc_num += 1
+            if prob > threshold:
+                num += 1
+            # if prob > 0.5 and not d['acc'][i]:
+            # print('{}, {}, {}, {}, {}'.format(d['name'][i], d['catagory'][i],
+            #                                   d['pre'][i], d['prob'][i],
+            #                                   d['vector'][i]))
+        acc.append(1.0 * acc_num / (num + 1e-12))
+        recall.append(1.0 * num / total_num)
+
+    x = [i for i in range(50)]
+    plt.plot(x, acc)
+    print(acc)
+    plt.plot(x, recall)
+    plt.show()
 
 if __name__ == '__main__':
 
     # test model
     # test()
-    # testSemir()
+    # testSemir('top')
+    # testSemirWithJson('top')
+    # accAndRecall()
 
     # init model
     # initializingModel('miniTrain.record')
 
     # train model
-    train('miniTrain.record', 'fashionDataEval.record', False)
+    # train(['miniTrain.record', 'shirtTrain.record', 'shirtTest.record', 'semirTrain.record'],
+    #       'fashionDataEval.record', False)
+    # train(['bingGoogle.record'])
 
     # freeze model
-    # freezingModel()
+    freezingModel()
 
     # printGraph('frozen.pb')
+
+
 
