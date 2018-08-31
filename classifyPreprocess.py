@@ -522,6 +522,59 @@ def random_crop_or_pad_image_and_label(image, crop_height, crop_width):
 
     return image_crop
 
+def distort_color(image, color_ordering=0, fast_mode=True, scope=None):
+  """Distort the color of a Tensor image.
+
+  Each color distortion is non-commutative and thus ordering of the color ops
+  matters. Ideally we would randomly permute the ordering of the color ops.
+  Rather then adding that level of complication, we select a distinct ordering
+  of color ops for each preprocessing thread.
+
+  Args:
+    image: 3-D Tensor containing single image in [0, 1].
+    color_ordering: Python int, a type of distortion (valid values: 0-3).
+    fast_mode: Avoids slower ops (random_hue and random_contrast)
+    scope: Optional scope for name_scope.
+  Returns:
+    3-D Tensor color-distorted image on range [0, 1]
+  Raises:
+    ValueError: if color_ordering not in [0, 3]
+  """
+  with tf.name_scope(scope, 'distort_color', [image]):
+    if fast_mode:
+      if color_ordering == 0:
+        image = tf.image.random_brightness(image, max_delta=32)
+        image = tf.image.random_saturation(image, lower=0.5, upper=1.5)
+      else:
+        image = tf.image.random_saturation(image, lower=0.5, upper=1.5)
+        image = tf.image.random_brightness(image, max_delta=32)
+    else:
+      if color_ordering == 0:
+        image = tf.image.random_brightness(image, max_delta=32)
+        image = tf.image.random_saturation(image, lower=0.5, upper=1.5)
+        image = tf.image.random_hue(image, max_delta=0.2)
+        image = tf.image.random_contrast(image, lower=0.5, upper=1.5)
+      elif color_ordering == 1:
+        image = tf.image.random_saturation(image, lower=0.5, upper=1.5)
+        image = tf.image.random_brightness(image, max_delta=32)
+        image = tf.image.random_contrast(image, lower=0.5, upper=1.5)
+        image = tf.image.random_hue(image, max_delta=0.2)
+      elif color_ordering == 2:
+        image = tf.image.random_contrast(image, lower=0.5, upper=1.5)
+        image = tf.image.random_hue(image, max_delta=0.2)
+        image = tf.image.random_brightness(image, max_delta=32)
+        image = tf.image.random_saturation(image, lower=0.5, upper=1.5)
+      elif color_ordering == 3:
+        image = tf.image.random_hue(image, max_delta=0.2)
+        image = tf.image.random_saturation(image, lower=0.5, upper=1.5)
+        image = tf.image.random_contrast(image, lower=0.5, upper=1.5)
+        image = tf.image.random_brightness(image, max_delta=32)
+      else:
+        raise ValueError('color_ordering must be in [0, 3]')
+
+    # The random_* ops do not necessarily clamp.
+    return tf.clip_by_value(image, 0.0, 1.0)
+
 def random_flip_left_right_image_and_label(image):
     """Randomly flip an image and label horizontally (left to right).
 
@@ -537,6 +590,9 @@ def random_flip_left_right_image_and_label(image):
     image = tf.cond(mirror_cond, lambda: tf.reverse(image, [1]), lambda: image)
 
     return image
+
+def image_whitening(image):
+    return tf.image.per_image_standardization(image)
 
 def mean_image_subtraction(image, means=(123.68, 116.779, 103.939)):
     """Subtracts the given means from each image channel.
@@ -600,12 +656,17 @@ def preprocess_image(image, catagory, is_training, params):
         # Randomly flip the image and label horizontally.
         image = random_flip_left_right_image_and_label(image)
 
+        # Randomly distort color
+        image = distort_color(image)
+
         # image.set_shape([params['height'], params['width'], 3])
 
         # resize Image and keep scale
         image = resizeImageKeepScale(image, targetW=params['width'], targetH=params['height'])
 
     image = mean_image_subtraction(image)
+    image = image_whitening(image)
+
     label = slim.one_hot_encoding(catagory, params['class_num'])
 
     return image, label
