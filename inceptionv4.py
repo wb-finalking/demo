@@ -975,7 +975,6 @@ def train(trainList, eval=None, is_eval=False):
 
     '''
     # TODO: implement accum_batch_descent 
-    opt = tf.train.GradientDescentOptimizer(learn_rate)
     # get all trainable variables
     t_vars = tf.trainable_variables()
     # create a copy of all trainable variables with `0` as initial values
@@ -984,24 +983,27 @@ def train(trainList, eval=None, is_eval=False):
     zero_ops = [tv.assign(tf.zeros_like(tv)) for tv in accum_tvars]
     
     # compute gradients for a batch
-    batch_grads_vars = opt.compute_gradients(loss, t_vars)
+    batch_grads_vars = optimizer.compute_gradients(loss, t_vars)
     # collect the batch gradient into accumulated vars
     accum_ops = [accum_tvars[i].assign_add(batch_grad_var[0]) for i, batch_grad_var in enumerate(batch_grads_vars)]
     
-    # apply accums gradients 
-    train_step = opt.apply_gradients([(accum_tvars[i], batch_grad_var[1]) for i, batch_grad_var in enumerate(batch_grads_vars)])
-    # train_step = opt.apply_gradients(zip(accum_tvars, zip(*batch_grads_vars)[1])
+    # apply accums gradients
+    update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+    with tf.control_dependencies(update_ops):
+        train_step = optimizer.apply_gradients([(accum_tvars[i], batch_grad_var[1]) for i, batch_grad_var in enumerate(batch_grads_vars)])
+        # train_step = optimizer.apply_gradients(zip(accum_tvars, zip(*batch_grads_vars)[1])
     
-    while True:
-    # initialize the accumulated gards
-    sess.run(zero_ops)
-    
-    # number of batches for gradient accumulation 
-    n_batches = 3
-    for i in xrange(n_batches):
-        sess.run(accum_ops, feed_dict={X: x_init[:, i]})
-    
-        sess.run(train_step)
+    with tf.Session() as sess:
+        while True:
+            # initialize the accumulated gards
+            sess.run(zero_ops)
+            
+            # number of batches for gradient accumulation 
+            n_batches = 3
+            for i in range(n_batches):
+                sess.run(accum_ops, feed_dict={X: x_init[:, i]})
+            
+            sess.run(train_step)
     '''
 
     # Batch norm requires update ops to be added as a dependency to the train_op
