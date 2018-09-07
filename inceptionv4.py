@@ -1110,14 +1110,6 @@ def initializingModel(tfrecord):
 
     merge_summary = tf.summary.merge_all()
     with tf.Session() as sess:
-        # sess.run(tf.global_variables_initializer())
-        # tf.local_variables_initializer().run()
-        saver = tf.train.Saver(variables_to_restore)
-        ckpt = tf.train.get_checkpoint_state(FLAGS.model_dir)
-        if ckpt and ckpt.model_checkpoint_path:
-            saver.restore(sess, ckpt.model_checkpoint_path)
-            logger.info("Model restored...")
-
         # set optimizer
         global_step = tf.train.get_or_create_global_step()
         learning_rate = inceptionv4.configure_learning_rate(22000, global_step)
@@ -1128,7 +1120,15 @@ def initializingModel(tfrecord):
         with tf.control_dependencies(update_ops):
             trainOp = optimizer.minimize(loss, global_step=global_step)
 
+        # sess.run(tf.global_variables_initializer())
+        # tf.local_variables_initializer().run()
         sess.run(tf.global_variables_initializer())
+
+        saver = tf.train.Saver(variables_to_restore)
+        ckpt = tf.train.get_checkpoint_state(FLAGS.model_dir)
+        if ckpt and ckpt.model_checkpoint_path:
+            saver.restore(sess, ckpt.model_checkpoint_path)
+            logger.info("Model restored...")
         saver = tf.train.Saver()
         saver.save(sess, 'model/model.ckpt', 0)
         # print(global_step)
