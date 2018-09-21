@@ -20,6 +20,8 @@ tf.app.flags.DEFINE_integer(
     'color_num', 11,
     'The color class number')
 
+tf.app.flags.DEFINE_float('batch_norm_decay', 0.95, 'batch norm decay')
+
 tf.app.flags.DEFINE_integer(
     'material_num', 5,
     'The material class number')
@@ -460,7 +462,7 @@ class Inceptionv4:
 
     def inception_arg_scope(self, weight_decay=0.00004,
                             use_batch_norm=True,
-                            batch_norm_decay=0.9997,
+                            batch_norm_decay=FLAGS.batch_norm_decay,
                             batch_norm_epsilon=0.001,
                             activation_fn=tf.nn.relu):
         """Defines the default arg scope for inception models.

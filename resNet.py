@@ -22,6 +22,8 @@ tf.app.flags.DEFINE_integer(
     'num_classes', 22,
     'The class number')
 
+tf.app.flags.DEFINE_float('batch_norm_decay', 0.95, 'batch norm decay')
+
 tf.app.flags.DEFINE_boolean('freeze_batch_norm', True,
                             'freeze batch norm.')
 
@@ -675,7 +677,7 @@ class ResNetV2(object):
                                rate=rate, padding='VALID', scope=scope)
 
     def resnet_arg_scope(self, weight_decay=0.0001,
-                         batch_norm_decay=0.997,
+                         batch_norm_decay=FLAGS.batch_norm_decay,
                          batch_norm_epsilon=1e-5,
                          batch_norm_scale=True,
                          activation_fn=tf.nn.relu,
