@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import io
 import os
 import sys
@@ -5,6 +6,9 @@ import numpy as np
 from PIL import Image
 import tensorflow as tf
 import cv2
+import json
+from scipy import misc
+from io import BytesIO
 
 slim = tf.contrib.slim
 
@@ -28,7 +32,24 @@ def bytes_list_feature(value):
 def float_list_feature(value):
     return tf.train.Feature(float_list=tf.train.FloatList(value=value))
 
-def dict_to_tf_example(image_path, catagory_label):
+def contrastLimitedAHE(image):
+    # image_arrary = np.array(image)
+    # b, g, r = cv2.split(image_arrary)
+    # clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    # b = clahe.apply(b)
+    # g = clahe.apply(g)
+    # r = clahe.apply(r)
+    # image = cv2.merge([b, g, r])
+
+    image = image.convert('L')
+    image_arrary = np.array(image)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    image_arrary = clahe.apply(image_arrary)
+    image = cv2.merge([image_arrary, image_arrary, image_arrary])
+
+    return Image.fromarray(image)
+
+def dict_to_tf_example(image_path, colorID=0, materialID=0, styleID=0):
     with tf.gfile.GFile(image_path, 'rb') as fid:
         encoded_jpg = fid.read()
     encoded_jpg_io = io.BytesIO(encoded_jpg)
@@ -37,415 +58,155 @@ def dict_to_tf_example(image_path, catagory_label):
         raise ValueError('Image format not JPEG')
 
     width, height = image.size
-
+    image = contrastLimitedAHE(image)
+    with BytesIO() as output:
+        image.save(output, 'JPEG')
+        data = output.getvalue()
     example = tf.train.Example(features=tf.train.Features(feature={
         'image/height': int64_feature(height),
         'image/width': int64_feature(width),
-        'image/encoded': bytes_feature(encoded_jpg),
+        'image/encoded': bytes_feature(data),#encoded_jpg),
         'image/format': bytes_feature('jpg'.encode('utf8')),
-        'label/catagory': int64_feature(catagory_label),
+        'label/colorID': int64_feature(colorID),
+        'label/materialID': int64_feature(materialID),
+        'label/styleID': int64_feature(styleID),
     }))
     return example
 
-def createTFRecord(output, data_path, list_category_img, list_partition, partition):
-    itr = 0
+def createTFRecord(output):
+
+    def getCatagory(dict):
+        for key in dict.keys():
+            if dict[key] ==True:
+                return key
+
+    colorList = ['black', 'gray', 'white', 'red', 'yellow', 'blue', 'pink', 'purple', 'green',
+                 'orange', 'brown']
+    materialList = ['cotton', 'linen', 'silk', 'wool', 'blended']
+    styleList = ['solidcolor', 'stripe', 'geometricpatterns', 'lattice', 'other']
+
+    colorTabel = {}
+    materialTabel = {}
+    styleTabel = {}
+
+    color_path = '/home/lingdi/project/fabricImages/color'
+    material_path = '/home/lingdi/project/fabricImages/material'
+    style_path = '/home/lingdi/project/fabricImages/style'
+    image_path = '/home/lingdi/project/fabricImages/biftmaker_images/'
+
+    def getTabel(tabel, path, clist):
+
+        for root, dirs, files in os.walk(path):
+            print('file length: {}'.format(len(files)))
+            for fn in files:
+                filename = fn.split('.')[0]
+
+                with open(root + os.sep + fn, 'r') as load_f:
+                    load_dict = json.load(load_f, encoding='gbk')
+                catagory = getCatagory(load_dict['flags'])
+                if catagory not in clist:
+                    continue
+                tabel[filename] = clist.index(catagory)
+
+    getTabel(colorTabel, color_path, colorList)
+    print(len(colorTabel.keys()))
+    getTabel(materialTabel, material_path, materialList)
+    print(len(materialTabel.keys()))
+    getTabel(styleTabel, style_path, styleList)
+    print(len(styleTabel.keys()))
+
     num = 0
+    error_num = 0
     with tf.python_io.TFRecordWriter(output) as writer:
-        with open(list_category_img, "r") as f_c:
-            with open(list_partition, "r") as f_p:
-                line_c = f_c.next()
-                total_num = int(line_c.strip())
-                f_c.next()
+        for key in colorTabel.keys():
+            try:
+                colorID = colorTabel[key]
+                materialID = materialTabel[key]
+                styleID = styleTabel[key]
+            except Exception as e:
+                print('image {} has to be eliminated...'.format(key))
+                error_num += 1
+                continue
 
-                f_p.next()
-                f_p.next()
-                for line_c, line_p in zip(f_c, f_p):
-                    line_c = line_c.strip()
-                    line_p = line_p.strip()
+            try:
+                img_path = image_path + key + '.jpg'
+                tf_example = dict_to_tf_example(img_path, colorID, materialID, styleID)
 
-                    image_path = os.path.join(data_path, line_c.split(' ')[0])
-                    catagory_label = int(line_c.split(' ')[-1]) - 1
+            except Exception as e:
+                print('Cannot open image {}'.format(key))
+                error_num += 1
+                continue
 
-                    if line_p.split(' ')[-1] == partition:
-                        num = num + 1
-                        try:
-                            tf_example = dict_to_tf_example(image_path, catagory_label)
-                        except:
-                            print("{} error...".format(image_path))
-                            continue
-                        writer.write(tf_example.SerializeToString())
+            num += 1
+            writer.write(tf_example.SerializeToString())
 
-                    itr = itr + 1
-                    if itr % 500 == 0:
-                        print('On image %d of %d', num, total_num)
+    print('train number: {}'.format(num))
+    print('error number: {}'.format(error_num))
 
-def createNewTFRecord(output, data_path, list_category_img):
-    itr = 0
-    num = 0
-
-    path = '/home/lingdi/project/Img/'
-
-    with tf.python_io.TFRecordWriter(output) as writer:
-        with open(list_category_img, "r") as f_c:
-            line_c = f_c.next()
-            total_num = int(line_c.strip())
-            f_c.next()
-
-            for line_c in f_c:
-                line_c = line_c.strip()
-
-
-                image_path = os.path.join(data_path, line_c.split(' ')[0])
-                catagory_label = int(line_c.split(' ')[-1])
-                if catagory_label in [1, 11]:
-                    num = num + 1
-                    try:
-                        # img = Image.open(image_path)
-                        # img.save(path+'jacket/'+str(num)+'.jpg')
-                        tf_example = dict_to_tf_example(image_path, 0)
-                    except:
-                        print("{} error...".format(image_path))
-                        continue
-                    writer.write(tf_example.SerializeToString())
-                elif catagory_label in [16]:
-                    num = num + 1
-                    try:
-                        # img = Image.open(image_path)
-                        # img.save(path + 'sweater/' + str(num) + '.jpg')
-                        tf_example = dict_to_tf_example(image_path, 1)
-                    except:
-                        print("{} error...".format(image_path))
-                        continue
-                    writer.write(tf_example.SerializeToString())
-                elif catagory_label in [18]:
-                    num = num + 1
-                    try:
-                        # img = Image.open(image_path)
-                        # img.save(path + 'T/' + str(num) + '.jpg')
-                        tf_example = dict_to_tf_example(image_path, 2)
-                    except:
-                        print("{} error...".format(image_path))
-                        continue
-                    writer.write(tf_example.SerializeToString())
-                elif catagory_label in [26,27]:
-                    num = num + 1
-                    try:
-                        # img = Image.open(image_path)
-                        # img.save(path + 'jeans/' + str(num) + '.jpg')
-                        tf_example = dict_to_tf_example(image_path, 3)
-                    except:
-                        print("{} error...".format(image_path))
-                        continue
-                    writer.write(tf_example.SerializeToString())
-                elif catagory_label in [32]:
-                    num = num + 1
-                    try:
-                        # img = Image.open(image_path)
-                        # img.save(path + 'shorts/' + str(num) + '.jpg')
-                        tf_example = dict_to_tf_example(image_path, 4)
-                    except:
-                        print("{} error...".format(image_path))
-                        continue
-                    writer.write(tf_example.SerializeToString())
-                elif catagory_label in [41]:
-                    num = num + 1
-                    try:
-                        # img = Image.open(image_path)
-                        # img.save(path + 'dress/' + str(num) + '.jpg')
-                        tf_example = dict_to_tf_example(image_path, 5)
-                    except:
-                        print("{} error...".format(image_path))
-                        continue
-                    writer.write(tf_example.SerializeToString())
-                elif catagory_label in [33]:
-                    num = num + 1
-                    try:
-                        # img = Image.open(image_path)
-                        # img.save(path + 'skirt/' + str(num) + '.jpg')
-                        tf_example = dict_to_tf_example(image_path, 6)
-                    except:
-                        print("{} error...".format(image_path))
-                        continue
-                    writer.write(tf_example.SerializeToString())
-
-                itr = itr + 1
-                if itr % 500 == 0:
-                    print('On image {} of {} @ {}'.format(num, total_num, itr))
-
-    # with open(list_category_img, "r") as f_c:
-    #
-    #     line_c = f_c.next()
-    #     total_num = int(line_c.strip())
-    #     f_c.next()
-    #
-    #     for line_c in f_c:
-    #         line_c = line_c.strip()
-    #
-    #         image_path = os.path.join(data_path, line_c.split(' ')[0])
-    #         catagory_label = int(line_c.split(' ')[-1])
-    #         if catagory_label in [1]:
-    #             num = num + 1
-    #             try:
-    #                 img = Image.open(image_path)
-    #                 img.save(path+'jacket/'+str(num)+'.jpg')
-    #             except:
-    #                 print("{} error...".format(image_path))
-    #                 continue
-    #         elif catagory_label in [6,16,20]:
-    #             num = num + 1
-    #             try:
-    #                 img = Image.open(image_path)
-    #                 img.save(path + 'sweater/' + str(num) + '.jpg')
-    #             except:
-    #                 print("{} error...".format(image_path))
-    #                 continue
-    #         elif catagory_label in [18]:
-    #             num = num + 1
-    #             try:
-    #                 img = Image.open(image_path)
-    #                 img.save(path + 'T/' + str(num) + '.jpg')
-    #             except:
-    #                 print("{} error...".format(image_path))
-    #                 continue
-    #         # elif catagory_label in [26,27]:
-    #         #     num = num + 1
-    #         #     try:
-    #         #         img = Image.open(image_path)
-    #         #         img.save(path + 'jeans/' + str(num) + '.jpg')
-    #         #     except:
-    #         #         print("{} error...".format(image_path))
-    #         #         continue
-    #         elif catagory_label in [32]:
-    #             num = num + 1
-    #             try:
-    #                 img = Image.open(image_path)
-    #                 img.save(path + 'shorts/' + str(num) + '.jpg')
-    #             except:
-    #                 print("{} error...".format(image_path))
-    #                 continue
-    #         # elif catagory_label in [41]:
-    #         #     num = num + 1
-    #         #     try:
-    #         #         img = Image.open(image_path)
-    #         #         img.save(path + 'dress/' + str(num) + '.jpg')
-    #         #     except:
-    #         #         print("{} error...".format(image_path))
-    #         #         continue
-    #         # elif catagory_label in [33]:
-    #         #     num = num + 1
-    #         #     try:
-    #         #         img = Image.open(image_path)
-    #         #         img.save(path + 'skirt/' + str(num) + '.jpg')
-    #         #     except:
-    #         #         print("{} error...".format(image_path))
-    #         #         continue
-    #
-    #         itr = itr + 1
-    #         if itr % 500 == 0:
-    #             print('On image %d of %d', num, total_num)
-
-def createMiniTFRecord(output, data_path, list_category_img):
-    itr = 0
-    num = 0
-
-    jacketNum = 0
-    sweaterNum = 0
-    TNum = 0
-    jeansNum = 0
-    shortsNum = 0
-    dressNum = 0
-    skirtNum = 0
-    threshold = 10000
-
-    path = '/home/lingdi/project/Img/'
-
-    with tf.python_io.TFRecordWriter(output) as writer:
-        with open(list_category_img, "r") as f_c:
-            line_c = f_c.next()
-            total_num = int(line_c.strip())
-            f_c.next()
-
-            for line_c in f_c:
-                line_c = line_c.strip()
-
-                image_path = os.path.join(data_path, line_c.split(' ')[0])
-                catagory_label = int(line_c.split(' ')[-1])
-                if catagory_label in [1, 11]:
-                    num = num + 1
-                    if jacketNum > threshold:
-                        continue
-                    jacketNum = jacketNum + 1
-                    try:
-                        # img = Image.open(image_path)
-                        # img.save(path+'jacket/'+str(num)+'.jpg')
-                        tf_example = dict_to_tf_example(image_path, 0)
-                    except:
-                        print("{} error...".format(image_path))
-                        continue
-                    writer.write(tf_example.SerializeToString())
-                elif catagory_label in [16]:
-                    num = num + 1
-                    if sweaterNum > threshold:
-                        continue
-                    sweaterNum = sweaterNum + 1
-                    try:
-                        # img = Image.open(image_path)
-                        # img.save(path + 'sweater/' + str(num) + '.jpg')
-                        tf_example = dict_to_tf_example(image_path, 1)
-                    except:
-                        print("{} error...".format(image_path))
-                        continue
-                    writer.write(tf_example.SerializeToString())
-                elif catagory_label in [18]:
-                    num = num + 1
-                    if TNum > threshold:
-                        continue
-                    TNum = TNum + 1
-                    try:
-                        # img = Image.open(image_path)
-                        # img.save(path + 'T/' + str(num) + '.jpg')
-                        tf_example = dict_to_tf_example(image_path, 2)
-                    except:
-                        print("{} error...".format(image_path))
-                        continue
-                    writer.write(tf_example.SerializeToString())
-                elif catagory_label in [26,27]:
-                    num = num + 1
-                    if jeansNum > threshold:
-                        continue
-                    jeansNum = jeansNum + 1
-                    try:
-                        # img = Image.open(image_path)
-                        # img.save(path + 'jeans/' + str(num) + '.jpg')
-                        tf_example = dict_to_tf_example(image_path, 3)
-                    except:
-                        print("{} error...".format(image_path))
-                        continue
-                    writer.write(tf_example.SerializeToString())
-                elif catagory_label in [32]:
-                    num = num + 1
-                    if shortsNum > threshold:
-                        continue
-                    shortsNum = shortsNum + 1
-                    try:
-                        # img = Image.open(image_path)
-                        # img.save(path + 'shorts/' + str(num) + '.jpg')
-                        tf_example = dict_to_tf_example(image_path, 4)
-                    except:
-                        print("{} error...".format(image_path))
-                        continue
-                    writer.write(tf_example.SerializeToString())
-                elif catagory_label in [41]:
-                    num = num + 1
-                    if dressNum > threshold:
-                        continue
-                    dressNum = dressNum + 1
-                    try:
-                        # img = Image.open(image_path)
-                        # img.save(path + 'dress/' + str(num) + '.jpg')
-                        tf_example = dict_to_tf_example(image_path, 5)
-                    except:
-                        print("{} error...".format(image_path))
-                        continue
-                    writer.write(tf_example.SerializeToString())
-                elif catagory_label in [33]:
-                    num = num + 1
-                    if skirtNum > threshold:
-                        continue
-                    skirtNum = skirtNum + 1
-                    try:
-                        # img = Image.open(image_path)
-                        # img.save(path + 'skirt/' + str(num) + '.jpg')
-                        tf_example = dict_to_tf_example(image_path, 6)
-                    except:
-                        print("{} error...".format(image_path))
-                        continue
-                    writer.write(tf_example.SerializeToString())
-
-                itr = itr + 1
-                if itr % 500 == 0:
-                    print('On image {} of {} @ {}'.format(num, total_num, itr))
-                    print('jacket: {}, sweater: {}, Tee: {}, jeans: {}, shorts: {}, dress: {}, skirt: {}'
-                          .format(jacketNum, sweaterNum, TNum, jeansNum, shortsNum, dressNum, skirtNum))
-
-def createFashionDataRecord(output, data_path, list_category_img):
-    '''
-    0:  'blouses':896,
-    1:  'cloak':7061,
-    2:  'coat':9061,
-    3:  'jacket':9366,
-    4:  'long dress':10090,
-    5:  'polo shirt, sport shirt':780,
-    6:  'robe':5799,
-    7:  'shirt':1425,
-    8:  'short dress':4285,
-    9:  'suit, suit of clothes':6054,
-    10: 'sweater':5209,
-    11: 'jersey, T-shirt, tee shirt':1426,
-    12: 'undergarment, upper body':5538,
-    13: 'uniform':3353,
-    14: 'vest, waistcoat':750,
-    '''
-
+def createNewTFRecord(output):
     itr = 0
 
-    numSet = ['blousesNum','cloakNum','oatNum','jacketNum','dressNum','poloShirtNum',
-           'robeNum','shirtNum','skirtNum','suitNum','sweaterNum','TNum',
-           'undergarmentNum','uniformNum','waistcoatNum']
+    colorList = ['black', 'gray', 'white', 'red', 'yellow', 'blue', 'purple', 'green',
+                 'orange', 'brown']
+    materialList = ['cotton', 'linen', 'silk', 'wool', 'blended']
+    styleList = ['solidcolor', 'stripe', 'lattice', 'flower', 'printing', 'other']
+    # styleList = ['solidcolor', 'thick', 'sparse', 'flower', 'other']
 
     numDict = {}
-    for num in numSet:
+    for num in styleList:
         numDict[num] = 0
 
-    path = '/home/lingdi/project/fashion-data/'
+    path = '/home/lingdi/project/fabricImages/style/'
 
+    threshold =100
     with tf.python_io.TFRecordWriter(output) as writer:
-        with open(list_category_img, "r") as f_c:
-            for line_c in f_c:
-                line_c = line_c.strip()
+        for idx, item in enumerate(styleList):
+            for root, dirs, files in os.walk(path+item):
+                for fn in files:
+                    filenames = root + os.sep + fn
+                    try:
+                        tf_example = dict_to_tf_example(filenames, styleID=idx)
+                    except:
+                        print("{} error...".format(filenames))
+                        continue
+                    writer.write(tf_example.SerializeToString())
+                    numDict[item] += 1
+                    if numDict[item] > threshold:
+                        break
+                if numDict[item] > threshold:
+                    break
 
-                image_path = os.path.join(data_path, line_c.split(' ')[0])
-                image_path += '.jpg'
-                catagory_label = int(line_c.split('/')[0])
-                try:
-                    tf_example = dict_to_tf_example(image_path, catagory_label)
-                    numDict[numSet[catagory_label]] += 1
-
-                except:
-                    print("{} error...".format(image_path))
-                    continue
-                writer.write(tf_example.SerializeToString())
-
-                itr = itr + 1
-                if itr % 500 == 0:
-                    print('On image {} of {}'.format(itr, 17858))
-
-    for num in numSet:
+    for num in styleList:
         print('{}: {}'.format(num, numDict[num]))
-
 
 """
     read tfrecorde
-    
+
 """
 def parse_record(raw_record):
     """Parse PASCAL image and label from a tf record."""
     keys_to_features = {
         'image/height':
-        tf.FixedLenFeature((), tf.int64),
+            tf.FixedLenFeature((), tf.int64),
         'image/width':
-        tf.FixedLenFeature((), tf.int64),
+            tf.FixedLenFeature((), tf.int64),
         'image/encoded':
-        tf.FixedLenFeature((), tf.string, default_value=''),
+            tf.FixedLenFeature((), tf.string, default_value=''),
         'image/format':
-        tf.FixedLenFeature((), tf.string, default_value='jpeg'),
-        'label/catagory':
-        tf.FixedLenFeature((), tf.int64),
+            tf.FixedLenFeature((), tf.string, default_value='jpeg'),
+        'label/colorID':
+            tf.FixedLenFeature((), tf.int64),
+        'label/materialID':
+            tf.FixedLenFeature((), tf.int64),
+        'label/styleID':
+            tf.FixedLenFeature((), tf.int64),
     }
 
     parsed = tf.parse_single_example(raw_record, keys_to_features)
 
-    catagory = tf.cast(parsed['label/catagory'], tf.int32)
+    colorID = tf.cast(parsed['label/colorID'], tf.int32)
+    materialID = tf.cast(parsed['label/materialID'], tf.int32)
+    styleID = tf.cast(parsed['label/styleID'], tf.int32)
     width = tf.cast(parsed['image/width'], tf.int32)
     height = tf.cast(parsed['image/height'], tf.int32)
 
@@ -454,7 +215,7 @@ def parse_record(raw_record):
     image = tf.to_float(tf.image.convert_image_dtype(image, dtype=tf.uint8))
     image.set_shape([None, None, 3])
 
-    return image, catagory
+    return image, colorID, materialID, styleID
 
 def random_rescale_image_and_label(image, min_scale, max_scale):
     """Rescale an image and label with in target scale.
@@ -488,9 +249,20 @@ def random_rescale_image_and_label(image, min_scale, max_scale):
     new_height = tf.to_int32(height * scale)
     new_width = tf.to_int32(width * scale)
     image = tf.image.resize_images(image, [new_height, new_width],
-                                 method=tf.image.ResizeMethod.BILINEAR)
+                                   method=tf.image.ResizeMethod.BILINEAR)
 
     return image
+
+def random_rotate_image(image, lowAngle, highAngle):
+    # tf.set_random_seed(666)
+
+    def random_rotate_image_func(image):
+        angle = np.random.uniform(low=lowAngle, high=highAngle)
+        return misc.imrotate(image, angle, 'bicubic')
+
+    image_rotate = tf.py_func(random_rotate_image_func, [image], tf.uint8)
+
+    return image_rotate
 
 def random_crop_or_pad_image_and_label(image, crop_height, crop_width):
     """Crops and/or pads an image to a target width and height.
@@ -522,58 +294,27 @@ def random_crop_or_pad_image_and_label(image, crop_height, crop_width):
 
     return image_crop
 
-def distort_color(image, color_ordering=0, fast_mode=True, scope=None):
-  """Distort the color of a Tensor image.
+def resize_and_random_crop_image(image, crop_height, crop_width):
+    image_height = tf.shape(image)[0]
+    image_width = tf.shape(image)[1]
 
-  Each color distortion is non-commutative and thus ordering of the color ops
-  matters. Ideally we would randomly permute the ordering of the color ops.
-  Rather then adding that level of complication, we select a distinct ordering
-  of color ops for each preprocessing thread.
+    w_scale = tf.maximum(float(crop_width) / tf.to_float(image_width), 1.0)
+    h_scale = tf.maximum(float(crop_height) / tf.to_float(image_height), 1.0)
+    scale = tf.maximum(w_scale, h_scale)
 
-  Args:
-    image: 3-D Tensor containing single image in [0, 1].
-    color_ordering: Python int, a type of distortion (valid values: 0-3).
-    fast_mode: Avoids slower ops (random_hue and random_contrast)
-    scope: Optional scope for name_scope.
-  Returns:
-    3-D Tensor color-distorted image on range [0, 1]
-  Raises:
-    ValueError: if color_ordering not in [0, 3]
-  """
-  with tf.name_scope(scope, 'distort_color', [image]):
-    if fast_mode:
-      if color_ordering == 0:
-        image = tf.image.random_brightness(image, max_delta=32)
-        image = tf.image.random_saturation(image, lower=0.5, upper=1.5)
-      else:
-        image = tf.image.random_saturation(image, lower=0.5, upper=1.5)
-        image = tf.image.random_brightness(image, max_delta=32)
-    else:
-      if color_ordering == 0:
-        image = tf.image.random_brightness(image, max_delta=32)
-        image = tf.image.random_saturation(image, lower=0.5, upper=1.5)
-        image = tf.image.random_hue(image, max_delta=0.2)
-        image = tf.image.random_contrast(image, lower=0.5, upper=1.5)
-      elif color_ordering == 1:
-        image = tf.image.random_saturation(image, lower=0.5, upper=1.5)
-        image = tf.image.random_brightness(image, max_delta=32)
-        image = tf.image.random_contrast(image, lower=0.5, upper=1.5)
-        image = tf.image.random_hue(image, max_delta=0.2)
-      elif color_ordering == 2:
-        image = tf.image.random_contrast(image, lower=0.5, upper=1.5)
-        image = tf.image.random_hue(image, max_delta=0.2)
-        image = tf.image.random_brightness(image, max_delta=32)
-        image = tf.image.random_saturation(image, lower=0.5, upper=1.5)
-      elif color_ordering == 3:
-        image = tf.image.random_hue(image, max_delta=0.2)
-        image = tf.image.random_saturation(image, lower=0.5, upper=1.5)
-        image = tf.image.random_contrast(image, lower=0.5, upper=1.5)
-        image = tf.image.random_brightness(image, max_delta=32)
-      else:
-        raise ValueError('color_ordering must be in [0, 3]')
+    new_height = tf.to_int32(tf.to_float(image_height) * scale)
+    new_width = tf.to_int32(tf.to_float(image_width) * scale)
+    image = tf.image.resize_images(image, [new_height, new_width],
+                                   method=tf.image.ResizeMethod.BILINEAR)
+	
+    image_pad = tf.image.pad_to_bounding_box(
+        image, 0, 0,
+        tf.maximum(crop_height, new_height),
+        tf.maximum(crop_width, new_width))
+    image_crop = tf.random_crop(image_pad, [crop_height, crop_width, 3])
+    image_crop = image_crop[:, :, :3]
 
-    # The random_* ops do not necessarily clamp.
-    return tf.clip_by_value(image, 0.0, 1.0)
+    return image_crop
 
 def random_flip_left_right_image_and_label(image):
     """Randomly flip an image and label horizontally (left to right).
@@ -590,9 +331,6 @@ def random_flip_left_right_image_and_label(image):
     image = tf.cond(mirror_cond, lambda: tf.reverse(image, [1]), lambda: image)
 
     return image
-
-def image_whitening(image):
-    return tf.image.per_image_standardization(image)
 
 def mean_image_subtraction(image, means=(123.68, 116.779, 103.939)):
     """Subtracts the given means from each image channel.
@@ -627,49 +365,48 @@ def mean_image_subtraction(image, means=(123.68, 116.779, 103.939)):
     return tf.concat(axis=2, values=channels)
 
 def resizeImageKeepScale(image, targetW=299, targetH=299):
-
     shape = tf.shape(image)
     height = tf.to_float(shape[0])
     width = tf.to_float(shape[1])
-    scale = tf.minimum(float(targetW) / width, float(targetH) / height)
+    scale = tf.maximum(float(targetW) / width, float(targetH) / height)
     new_height = tf.to_int32(height * scale)
     new_width = tf.to_int32(width * scale)
     image = tf.image.resize_images(image, [new_height, new_width],
                                    method=tf.image.ResizeMethod.BILINEAR)
-    image_pad = tf.image.pad_to_bounding_box(
-        image, 0, 0,
-        targetH,targetW)
+    # image_pad = tf.image.pad_to_bounding_box(
+    #     image, 0, 0,
+    #     targetH, targetW)
 
-    return image_pad
+    return image
 
-def preprocess_image(image, catagory, is_training, params):
+def preprocess_image(image, colorID, materialID, styleID, is_training, params):
     """Preprocess a single image of layout [height, width, depth]."""
     if is_training:
         # # Randomly scale the image and label.
-        # image = random_rescale_image_and_label(
-        #     image, params['min_scale'], params['max_scale'])
+        image = random_rescale_image_and_label(
+            image, params['min_scale'], params['max_scale'])
 
-        # Randomly crop or pad a [_HEIGHT, _WIDTH] section of the image and label.
-        # image = random_crop_or_pad_image_and_label(
-        #     image, params['height'], params['width'])
-
-        # Randomly flip the image and label horizontally.
-        image = random_flip_left_right_image_and_label(image)
-
-        # Randomly distort color
-        image = distort_color(image)
-
-        # image.set_shape([params['height'], params['width'], 3])
+        # Randomly rotate the image between lowAngel and highAngel
+        # image = random_rotate_image(image, -45.0, 45.0)
 
         # resize Image and keep scale
         image = resizeImageKeepScale(image, targetW=params['width'], targetH=params['height'])
 
-    image = mean_image_subtraction(image)
-    image = image_whitening(image)
+        # Randomly crop or pad a [_HEIGHT, _WIDTH] section of the image and label.
+        image = resize_and_random_crop_image(
+            image, params['height'], params['width'])
 
-    label = slim.one_hot_encoding(catagory, params['class_num'])
+        # Randomly flip the image and label horizontally.
+        image = random_flip_left_right_image_and_label(image)
 
-    return image, label
+        # image.set_shape([params['height'], params['width'], 3])
+
+    # image = mean_image_subtraction(image)
+    colorlabel = slim.one_hot_encoding(colorID, params['color_num'])
+    materiallabel = slim.one_hot_encoding(materialID, params['material_num'])
+    stylelabel = slim.one_hot_encoding(styleID, params['style_num'])
+
+    return image, colorlabel, materiallabel, stylelabel
 
 def input_fn(is_training, recordFilename, params):
     """Input_fn using the tf.data input pipeline for CIFAR-10 dataset.
@@ -693,7 +430,8 @@ def input_fn(is_training, recordFilename, params):
 
     dataset = dataset.map(parse_record)
     dataset = dataset.map(
-        lambda image, catagory: preprocess_image(image, catagory, is_training, params=params))
+        lambda image, colorlabel, materiallabel, stylelabel:
+        preprocess_image(image, colorlabel, materiallabel, stylelabel, is_training, params=params))
     dataset = dataset.prefetch(params['batch_size'])
 
     # We call repeat after shuffling, rather than before, to prevent separate
@@ -702,41 +440,45 @@ def input_fn(is_training, recordFilename, params):
     dataset = dataset.batch(params['batch_size'])
 
     iterator = dataset.make_one_shot_iterator()
-    images, labels = iterator.get_next()
+    images, colorlabel, materiallabel, stylelabel = iterator.get_next()
 
-    return images, labels
+    return images, colorlabel, materiallabel, stylelabel
 
 def testTfrecord():
-
-    inputs, labels = input_fn(True, ['miniTrain.record'], params={
-        'num_epochs': 20,
-        'class_num': 7,
+    inputsTrain, colorLabelsTrain, \
+    materialLabelsTrain, styleLabelsTrain = input_fn(True, ['style.record'], params={
+        'num_epochs': 1,
+        'color_num': 10,
+        'material_num': 5,
+        'style_num': 6,
         'batch_size': 5,
-        'buffer_size': 70000,
-        'min_scale': 0.9,
-        'max_scale': 1.1,
+        'buffer_size': 1000,
+        'min_scale': 1.0,
+        'max_scale': 1.4,
         'height': 299,
         'width': 299,
         'ignore_label': 255,
     })
 
+    styleList = ['solidcolor', 'stripe', 'lattice', 'flower', 'printing', 'other']
     with tf.Session() as sess:
-        for i in range(10):
-            input, label = sess.run([inputs, labels])
+        for i in range(1):
+            input, label = sess.run([inputsTrain, styleLabelsTrain])
 
             # if i < 998:
             #     continue
-            print('label: {}'.format(label))
-            img = input[0,:,:,:]
-            (R, G, B) = cv2.split(img)
-            R = R + 123.68
-            G = G + 116.779
-            B = B + 103.939
-            img = cv2.merge([R, G, B])
+            print('label: {}'.format(styleList[np.argmax(label)]))
+            img = input[0, :, :, :]
+            # (R, G, B) = cv2.split(img)
+            # R = R + 123.68
+            # G = G + 116.779
+            # B = B + 103.939
+            # img = cv2.merge([R, G, B])
             im = Image.fromarray(np.uint8(np.array(img)))
+            # print(np.array(im))
             im.show('')
-            #cv2.imshow('',img)
-            #cv2.waitKey(0)
+            # cv2.imshow('',img)
+            # cv2.waitKey(0)
 
 def resize(im, targetW=300, targetH=300):
     # targetW = 300
@@ -761,18 +503,25 @@ def resize(im, targetW=300, targetH=300):
                       (targetH - h) // 2))
     return new_im
 
+def scaleAndCrop(im, targetW=300, targetH=300):
+    ratio = 1
+
+    im = Image.fromarray(np.uint8(np.array(im)))
+    w = im.size[0]
+    h = im.size[1]
+
+    ratio = max(float(targetW) / w, float(targetH) / h)
+    w = int(w * ratio)
+    h = int(h * ratio)
+    im = im.resize((w, h), Image.ANTIALIAS)
+
+    cood = [(w - targetW) // 2, (h - targetH) // 2,
+            targetW + (w - targetW) // 2, targetH + (h - targetH) // 2]
+
+    return im.crop(cood)
+
 if __name__ == '__main__':
-    # createTFRecord('val.record',
-    #                '/home/lingdi/Downloads/Img',
-    #                '/home/lingdi/Downloads/Img/Anno/list_category_img.txt',
-    #                '/home/lingdi/Downloads/Img/Eval/list_eval_partition.txt',
-    #                'val')
 
-    # createMiniTFRecord('miniTrain.record',
-    #                '/home/lingdi/Downloads/Img',
-    #                '/home/lingdi/Downloads/Img/Anno/list_category_img.txt')
-
-    # createFashionDataRecord('fashionDataEval.record',
-    #                    '/home/lingdi/project/fashion-data/images',
-    #                    '/home/lingdi/project/fashion-data/test.txt')
+    # createTFRecord('fabric.record')
+    # createNewTFRecord('style.record')
     testTfrecord()
