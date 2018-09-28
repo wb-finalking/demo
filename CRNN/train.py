@@ -261,8 +261,12 @@ def train(trainList, stage='landmark', init=False):
     learning_rate = configure_learning_rate(FLAGS.train_images_num, global_step)
     optimizer = configure_optimizer(learning_rate)
 
+    # loss definition
     # slim.losses.add_loss(pose_loss)
-    slim.losses.mean_squared_error(net, ground_heatmaps)
+    if stage.lower() == 'landmark':
+        slim.losses.mean_squared_error(net, ground_heatmaps)
+    else:
+        slim.losses.sigmoid_cross_entropy(net, label, label_smoothing=0.0000001)
     loss = slim.losses.get_total_loss()
     tf.summary.scalar('loss', loss)
 
@@ -330,6 +334,36 @@ def train(trainList, stage='landmark', init=False):
             if (itr % 500 == 0):
                 saver.save(sess, FLAGS.model_dir + '/model.ckpt', itr)
 
+def freeze():
+    afg_net = AFGNet()
+
+    # build net
+    ground_heatmaps = tf.placeholder(tf.float32, shape=(None, FLAGS.image_size, FLAGS.image_size, 9))
+    images_input = tf.placeholder(tf.float32, shape=(None, FLAGS.image_size, FLAGS.image_size, 3))
+    label_input = tf.placeholder(tf.int32, shape=(None, FLAGS.num_classes))
+    net = afg_net.buildNet(images_input, FLAGS.num_classes, weight_decay=FLAGS.weight_decay,
+                           is_training=True, dropout_keep_prob=FLAGS.dropout_keep_prob,
+                           stage='classification')
+
+    with tf.Session() as sess:
+        saver = tf.train.Saver()
+        ckpt = tf.train.get_checkpoint_state(FLAGS.model_dir)
+        if ckpt and ckpt.model_checkpoint_path:
+            saver.restore(sess, ckpt.model_checkpoint_path)
+            logger.info("Model restored...")
+
+        graph_def = sess.graph.as_graph_def()
+        output_graph_def = graph_util.convert_variables_to_constants(
+            sess,
+            graph_def,
+            ['Classification/Predictions']
+        )
+
+        # Finally we serialize and dump the output graph to the filesystem
+        with tf.gfile.GFile('frozen.pb', "wb") as f:
+            f.write(output_graph_def.SerializeToString())
+        print("%d ops in the final graph." % len(output_graph_def.node))
+
 
 if __name__ == '__main__':
-    train(trainList, stage='landmark', init=True)
+    train(['xxxxx.tfrecord'], stage='landmark', init=True)

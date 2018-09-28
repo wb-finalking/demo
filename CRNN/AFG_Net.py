@@ -472,6 +472,7 @@ class AFGNet(object):
                                    scope='dropout7')
                 net = slim.conv2d(net, num_classes, [1, 1], scope='fc8')
                 net = tf.squeeze(net, [1, 2], name='fc8/squeezed')
+                net = tf.nn.softmax(net, name='Predictions')
 
         return net
 
