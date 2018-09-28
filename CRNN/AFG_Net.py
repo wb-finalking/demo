@@ -341,7 +341,7 @@ def _conv(args, filter_size, num_features, bias, bias_start=0.0):
         res = conv_op(args[0], kernel, strides, padding="SAME")
     else:
         res = conv_op(
-            array_ops.concat(axis=shape_length - 1, values=args),
+            array_ops.concat(axis=0, values=args),
             kernel,
             strides,
             padding="SAME")
@@ -394,25 +394,30 @@ class CRNN(tf.contrib.rnn.RNNCell):
     def output_size(self):
         return self._output_size
 
-    # def zero_state(self, batch_size, dtype):
-    #     state_size = self.state_size
-    #     # return _zero_state_tensors(state_size, batch_size, dtype)
-    #
-    #     def expand(x, dim, N):
-    #         return tf.concat([tf.expand_dims(x, dim) for _ in range(N)], axis=dim)
-    #
-    #     with tf.variable_scope('init', reuse=False):
-    #         state = expand(tf.get_variable('init_state', self.state_size,
-    #                                        initializer=tf.random_normal_initializer(mean=0.0, stddev=0.5)), dim=0,N=batch_size)
-    #
-    #     return state
+    def zero_state(self, batch_size, dtype):
+        state_size = self.state_size
+        # return _zero_state_tensors(state_size, batch_size, dtype)
+
+        def expand(x, dim, N):
+            return tf.concat([tf.expand_dims(x, dim) for _ in range(N)], axis=dim)
+
+        with tf.variable_scope('CRNN_init', reuse=tf.AUTO_REUSE):
+            # state = expand(tf.get_variable('init_state', self.state_size,
+            #                                initializer=tf.random_normal_initializer(mean=0.0, stddev=0.5)), dim=0,N=batch_size)
+
+            state = tf.get_variable('zero_state',
+                                    [2]+self.state_size,
+                                    initializer=tf.random_normal_initializer(mean=0.0, stddev=0.5))
+        return state
 
     def __call__(self, inputs, state, scope=None):
         cell, hidden = state[0], state[1]
-        print(inputs.shape, hidden.shape, len(state))
-        new_hidden = _conv([inputs, hidden], self._kernel_shape,
-                           self._output_channels, self._use_bias)
 
+        r=array_ops.concat(axis=0, values=[inputs, state])
+        # new_hidden = _conv([inputs, state], self._kernel_shape,
+        #                    self._output_channels, self._use_bias)
+        new_hidden = slim.conv2d(tf.concat([inputs, state], axis=0), 1, 3,
+                                 padding='SAME', scope='conv')
         output = math_ops.tanh(new_hidden)
 
         return output, output
@@ -467,15 +472,15 @@ class AFGNet(object):
             background = heat_maps[8]
 
             # max merge heatmaps
-            l_collar= tf.reduce_max([RK1_refined_heatmaps[0], RK2_refined_heatmaps[0], RS1_refined_heatmaps[0]], axis=3)
-            l_sleeve = tf.reduce_max([RK2_refined_heatmaps[1], RS2_refined_heatmaps[0]], axis=3)
-            l_waistline = tf.reduce_max([RK1_refined_heatmaps[1], RS3_refined_heatmaps[0]], axis=3)
-            l_hem = tf.reduce_max([RK1_refined_heatmaps[2], RS4_refined_heatmaps[0]], axis=3)
+            l_collar= tf.reduce_max([RK1_refined_heatmaps[0], RK2_refined_heatmaps[0], RS1_refined_heatmaps[0]], axis=0)
+            l_sleeve = tf.reduce_max([RK2_refined_heatmaps[1], RS2_refined_heatmaps[0]], axis=0)
+            l_waistline = tf.reduce_max([RK1_refined_heatmaps[1], RS3_refined_heatmaps[0]], axis=0)
+            l_hem = tf.reduce_max([RK1_refined_heatmaps[2], RS4_refined_heatmaps[0]], axis=0)
 
-            r_collar = tf.reduce_max([RK3_refined_heatmaps[0], RK4_refined_heatmaps[0], RS1_refined_heatmaps[1]], axis=3)
-            r_sleeve = tf.reduce_max([RK4_refined_heatmaps[1], RS2_refined_heatmaps[1]], axis=3)
-            r_waistline = tf.reduce_max([RK3_refined_heatmaps[1], RS3_refined_heatmaps[1]], axis=3)
-            r_hem = tf.reduce_max([RK3_refined_heatmaps[2], RS4_refined_heatmaps[1]], axis=3)
+            r_collar = tf.reduce_max([RK3_refined_heatmaps[0], RK4_refined_heatmaps[0], RS1_refined_heatmaps[1]], axis=0)
+            r_sleeve = tf.reduce_max([RK4_refined_heatmaps[1], RS2_refined_heatmaps[1]], axis=0)
+            r_waistline = tf.reduce_max([RK3_refined_heatmaps[1], RS3_refined_heatmaps[1]], axis=0)
+            r_hem = tf.reduce_max([RK3_refined_heatmaps[2], RS4_refined_heatmaps[1]], axis=0)
 
             refined_heatmaps = tf.stack([l_collar, l_sleeve, l_waistline, l_hem,
                                          r_collar, r_sleeve, r_waistline, r_hem,
@@ -545,8 +550,11 @@ class AFGNet(object):
                                            heat_maps[maps_idxs[2]]], axis=3)
             # grammar_serial_RK1 shape (batch_size, time_steps, row, col)
             grammar_serial = tf.transpose(grammar_serial, (0, 3, 1, 2))
+            grammar_serial = tf.expand_dims(grammar_serial, 4)
             refined_heatmaps = self.multiLayerBidirectionalRnn(1, 3, grammar_serial, [maps_num])
-            return tf.transpose(refined_heatmaps, (1, 0, 2, 3))
+            refined_heatmaps = tf.squeeze(refined_heatmaps, [4])
+            refined_heatmaps = tf.transpose(refined_heatmaps, (1, 0, 2, 3))
+            return refined_heatmaps
 
     def multiLayerBidirectionalRnn(self, num_units, num_layers, inputs, seq_lengths):
         """multi layer bidirectional rnn
@@ -571,8 +579,11 @@ class AFGNet(object):
             # with tf.variable_scope(None, default_name="bidirectional-rnn"):
             # rnn_cell_fw = tf.contrib.rnn.BasicLSTMCell(num_units)
             # rnn_cell_bw = tf.contrib.rnn.BasicLSTMCell(num_units)
-            rnn_cell_fw = CRNN(1, [28, 28], 1, [2, 2])
-            rnn_cell_bw = CRNN(1, [28, 28], 1, [2, 2])
+            # rnn_cell_fw = CRNN(1, [28, 28], 1, [2, 2])
+            # rnn_cell_bw = CRNN(1, [28, 28], 1, [2, 2])
+            kwarg = {'input_shape':[28, 28, 1], 'output_channels':1, 'kernel_shape':[2, 2]}
+            rnn_cell_fw = tf.contrib.rnn.Conv2DLSTMCell('conv_2d_lstm_cell_fw',**kwarg)
+            rnn_cell_bw = tf.contrib.rnn.Conv2DLSTMCell('conv_2d_lstm_cell_bw',**kwarg)
             initial_state_fw = rnn_cell_fw.zero_state(batch_size, dtype=tf.float32)
             initial_state_bw = rnn_cell_bw.zero_state(batch_size, dtype=tf.float32)
             output, state = tf.nn.bidirectional_dynamic_rnn(rnn_cell_fw, rnn_cell_bw,
