@@ -9,6 +9,7 @@ import cv2
 import json
 from scipy import misc
 from io import BytesIO
+import pandas as pd
 
 slim = tf.contrib.slim
 
@@ -60,7 +61,8 @@ def convertLandmark2Heatmap(landmarks, height, width):
     heatmaps = []
     for landmark in landmarks:
         img = np.zeros((height, width))
-        img[landmark[0], landmark[1]] = 1
+        if landmark[0] >= 0 and landmark[1] >= 0:
+            img[landmark[0], landmark[1]] = 1
         img = cv2.GaussianBlur(img, (31, 31), 0)
         heatmaps.append(img)
     heatmaps = np.array(heatmaps)
@@ -130,35 +132,40 @@ def createTFRecord(output):
         print('{}: {}'.format(num, numDict[num]))
 
 def createLandmarkRecord(output):
-    itr = 0
+    def location(idx):
+        if idx == -1:
+            return [-1, -1]
+        return [row['landmark_location_y_'+str(idx)], row['landmark_location_x_'+str(idx)]]
 
-    catagory = ['solidcolor', 'stripe', 'lattice', 'flower', 'printing', 'other']
-    numDict = {}
-    for num in catagory:
-        numDict[num] = 0
+    data = pd.read_csv('/home/lingdi/Downloads/Img/Anno/landmarks.txt', sep=' ')
 
-    path = '/home/lingdi/project/fabricImages/style/'
+    path = '/home/lingdi/Downloads/Img/'
 
     threshold = 100
     with tf.python_io.TFRecordWriter(output) as writer:
-        for idx, item in enumerate(catagory):
-            for root, dirs, files in os.walk(path + item):
-                for fn in files:
-                    filenames = root + os.sep + fn
-                    try:
-                        tf_example = dict_to_tf_example(filenames, styleID=idx)
-                    except:
-                        print("{} error...".format(filenames))
-                        continue
-                    writer.write(tf_example.SerializeToString())
-                    numDict[item] += 1
-                    if numDict[item] > threshold:
-                        break
-                if numDict[item] > threshold:
-                    break
+        for row in data.rows:
+            filenames = path + row['image_name']
+            labelID = row['clothes_type']
+            if labelID == 1:
+                # collar sleeve waistline hem
+                landmarks = [location(0), location(2), location(-1), location(4),
+                             location(1), location(3), location(-1), location(5)]
+            elif labelID == 2:
+                # collar sleeve waistline hem
+                landmarks = [location(-1), location(-1), location(0), location(2),
+                             location(-1), location(-1), location(1), location(3)]
+            elif labelID == 3:
+                # collar sleeve waistline hem
+                landmarks = [location(0), location(2), location(4), location(6),
+                             location(1), location(3), location(5), location(7)]
 
-    for num in catagory:
-        print('{}: {}'.format(num, numDict[num]))
+            try:
+                tf_example = dict_to_tf_example(filenames, labelID=labelID, landmarks=landmarks)
+                print("{} completed...".format(filenames))
+            except:
+                print("{} error...".format(filenames))
+                continue
+            writer.write(tf_example.SerializeToString())
 
 """
     read tfrecorde
@@ -510,6 +517,6 @@ def scaleAndCrop(im, targetW=300, targetH=300):
 
 
 if __name__ == '__main__':
-    createTFRecord('clothing.record')
-    # createNewTFRecord('style.record')
+    # createTFRecord('clothing.record')
+    createLandmarkRecord('clothing.record')
     # testTfrecord()
