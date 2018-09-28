@@ -9,6 +9,7 @@ from tensorflow.python.ops import init_ops
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import nn_ops
 from tensorflow.python.ops import math_ops
+from tensorflow.contrib.rnn.python.ops.rnn_cell import _conv
 from tensorflow.python.ops.rnn_cell_impl import _zero_state_tensors, LSTMStateTuple
 import tensorflow.contrib.slim as slim
 from tensorflow.python.framework import graph_util
@@ -293,66 +294,6 @@ class VGG(object):
                     end_points[sc.name + '/fc8'] = net
                 return net, end_points
 
-def _conv(args, filter_size, num_features, bias, bias_start=0.0):
-    """Convolution.
-    Args:
-    args: a Tensor or a list of Tensors of dimension 3D, 4D or 5D,
-    batch x n, Tensors.
-    filter_size: int tuple of filter height and width.
-    num_features: int, number of features.
-    bias: Whether to use biases in the convolution layer.
-    bias_start: starting value to initialize the bias; 0 by default.
-    Returns:
-    A 3D, 4D, or 5D Tensor with shape [batch ... num_features]
-    Raises:
-    ValueError: if some of the arguments has unspecified or wrong shape.
-    """
-
-    # Calculate the total size of arguments on dimension 1.
-    total_arg_size_depth = 0
-    shapes = [a.get_shape().as_list() for a in args]
-    shape_length = len(shapes[0])
-    for shape in shapes:
-        if len(shape) not in [3, 4, 5]:
-            raise ValueError("Conv Linear expects 3D, 4D "
-                             "or 5D arguments: %s" % str(shapes))
-        if len(shape) != len(shapes[0]):
-            raise ValueError("Conv Linear expects all args "
-                             "to be of same Dimension: %s" % str(shapes))
-        else:
-            total_arg_size_depth += shape[-1]
-        dtype = [a.dtype for a in args][0]
-
-    # determine correct conv operation
-    if shape_length == 3:
-        conv_op = nn_ops.conv1d
-        strides = 1
-    elif shape_length == 4:
-        conv_op = nn_ops.conv2d
-        strides = shape_length * [1]
-    elif shape_length == 5:
-        conv_op = nn_ops.conv3d
-        strides = shape_length * [1]
-
-    # Now the computation.
-    kernel = variable_scope.get_variable(
-        "kernel", filter_size + [total_arg_size_depth, num_features], dtype=dtype)
-    if len(args) == 1:
-        res = conv_op(args[0], kernel, strides, padding="SAME")
-    else:
-        res = conv_op(
-            array_ops.concat(axis=0, values=args),
-            kernel,
-            strides,
-            padding="SAME")
-    if not bias:
-        return res
-    bias_term = variable_scope.get_variable(
-        "biases", [num_features],
-        dtype=dtype,
-        initializer=init_ops.constant_initializer(bias_start, dtype=dtype))
-    return res + bias_term
-
 class CRNN(tf.contrib.rnn.RNNCell):
     def __init__(self, conv_ndims, input_shape, output_channels, kernel_shape,
                  use_bias=True, initializers=None, name="crnn_cell"):
@@ -395,29 +336,24 @@ class CRNN(tf.contrib.rnn.RNNCell):
         return self._output_size
 
     def zero_state(self, batch_size, dtype):
-        state_size = self.state_size
         # return _zero_state_tensors(state_size, batch_size, dtype)
 
-        def expand(x, dim, N):
-            return tf.concat([tf.expand_dims(x, dim) for _ in range(N)], axis=dim)
-
+        # def expand(x, dim, N):
+        #     return tf.concat([tf.expand_dims(x, dim) for _ in range(N)], axis=dim)
+        #
         with tf.variable_scope('CRNN_init', reuse=tf.AUTO_REUSE):
-            # state = expand(tf.get_variable('init_state', self.state_size,
-            #                                initializer=tf.random_normal_initializer(mean=0.0, stddev=0.5)), dim=0,N=batch_size)
-
             state = tf.get_variable('zero_state',
-                                    [2]+self.state_size,
+                                    self.state_size,
                                     initializer=tf.random_normal_initializer(mean=0.0, stddev=0.5))
-        return state
+
+        return tf.tile(tf.expand_dims(state, 0), [batch_size, 1, 1, 1])
 
     def __call__(self, inputs, state, scope=None):
-        cell, hidden = state[0], state[1]
-
-        r=array_ops.concat(axis=0, values=[inputs, state])
-        # new_hidden = _conv([inputs, state], self._kernel_shape,
-        #                    self._output_channels, self._use_bias)
-        new_hidden = slim.conv2d(tf.concat([inputs, state], axis=0), 1, 3,
-                                 padding='SAME', scope='conv')
+        # r=array_ops.concat(axis=0, values=[inputs, state])
+        new_hidden = _conv([inputs, state], self._kernel_shape,
+                           self._output_channels, self._use_bias)
+        # new_hidden = slim.conv2d(tf.concat([inputs, state], axis=0), 1, 3,
+        #                          padding='SAME', scope='conv')
         output = math_ops.tanh(new_hidden)
 
         return output, output
@@ -577,13 +513,14 @@ class AFGNet(object):
             # 为什么在这加个variable_scope,被逼的,tf在rnn_cell的__call__中非要搞一个命名空间检查
             # 恶心的很.如果不在这加的话,会报错的.
             # with tf.variable_scope(None, default_name="bidirectional-rnn"):
-            # rnn_cell_fw = tf.contrib.rnn.BasicLSTMCell(num_units)
-            # rnn_cell_bw = tf.contrib.rnn.BasicLSTMCell(num_units)
-            # rnn_cell_fw = CRNN(1, [28, 28], 1, [2, 2])
-            # rnn_cell_bw = CRNN(1, [28, 28], 1, [2, 2])
+
+            # rnn_cell_fw = CRNN(2, [28, 28, 1], 1, [2, 2])
+            # rnn_cell_bw = CRNN(2, [28, 28, 1], 1, [2, 2])
+
             kwarg = {'input_shape':[28, 28, 1], 'output_channels':1, 'kernel_shape':[2, 2]}
             rnn_cell_fw = tf.contrib.rnn.Conv2DLSTMCell('conv_2d_lstm_cell_fw',**kwarg)
             rnn_cell_bw = tf.contrib.rnn.Conv2DLSTMCell('conv_2d_lstm_cell_bw',**kwarg)
+
             initial_state_fw = rnn_cell_fw.zero_state(batch_size, dtype=tf.float32)
             initial_state_bw = rnn_cell_bw.zero_state(batch_size, dtype=tf.float32)
             output, state = tf.nn.bidirectional_dynamic_rnn(rnn_cell_fw, rnn_cell_bw,
@@ -591,6 +528,12 @@ class AFGNet(object):
                                                             initial_state_fw, initial_state_bw,
                                                             dtype=tf.float32,
                                                             scope="BCRNN_"+str(T))
+            # output, state = tf.nn.static_bidirectional_rnn(rnn_cell_fw, rnn_cell_bw,
+            #                                                _inputs, sequence_length=seq_lengths,
+            #                                                initial_state_fw=initial_state_fw,
+            #                                                initial_state_bw=initial_state_bw,
+            #                                                dtype=tf.float32,
+            #                                                scope="BCRNN_" + str(T))
             # generate input for next bcrnn layer
             # _inputs = tf.concat(output, 2)
             output_fw, output_bw = output[0], output[1]
