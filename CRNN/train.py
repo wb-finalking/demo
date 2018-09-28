@@ -239,7 +239,7 @@ def train(trainList, stage='landmark', init=False):
     images, label, landmarks = input_fn(True, trainList, params={
         'augment': augment,
         'num_epochs': FLAGS.num_epochs,
-        'class_num': FLAGS.num_classes,
+        'num_classes': FLAGS.num_classes,
         'batch_size': FLAGS.batch_size,
         'buffer_size': FLAGS.train_images_num,
         'min_scale': 0.8,
@@ -249,7 +249,7 @@ def train(trainList, stage='landmark', init=False):
     })
 
     # build net
-    ground_heatmaps = tf.placeholder(tf.float32, shape=(None, FLAGS.image_size, FLAGS.image_size, 9))
+    ground_heatmaps = tf.placeholder(tf.float32, shape=(None, 28, 28, 9))
     images_input = tf.placeholder(tf.float32, shape=(None, FLAGS.image_size, FLAGS.image_size, 3))
     label_input = tf.placeholder(tf.int32, shape=(None, FLAGS.num_classes))
     net = afg_net.buildNet(images_input, FLAGS.num_classes, weight_decay=FLAGS.weight_decay,
@@ -288,19 +288,24 @@ def train(trainList, stage='landmark', init=False):
 
             if stage.lower() == 'landmark':
                 exclude = ['BCRNN', 'LandmarkAttention', 'ClothingAttention',
-                           'Classification', 'global_step']
+                           'Classification', 'global_step', 'save']
             else:
                 exclude = ['ClothingAttention', 'Classification', 'global_step']
             variables_to_restore = tf.contrib.slim.get_variables_to_restore(exclude=exclude)
 
-            saver = tf.train.Saver(variables_to_restore)
-            ckpt = tf.train.get_checkpoint_state(FLAGS.model_dir)
-            if ckpt and ckpt.model_checkpoint_path:
-                saver.restore(sess, ckpt.model_checkpoint_path)
-                logger.info("Model restored...")
+            # saver = tf.train.Saver(variables_to_restore)
+            # ckpt = tf.train.get_checkpoint_state(FLAGS.model_dir)
+            # if ckpt and ckpt.model_checkpoint_path:
+            #     saver.restore(sess, ckpt.model_checkpoint_path)
+            #     logger.info("Model restored...")
+            init = slim.assign_from_checkpoint_fn(FLAGS.model_dir+'/model.ckpt', variables_to_restore,
+                                                  ignore_missing_vars=True)
+            init(sess)
 
             saver = tf.train.Saver()
             saver.save(sess, FLAGS.model_dir+'/model.ckpt', 0)
+
+            return
         else:
             saver = tf.train.Saver()
             ckpt = tf.train.get_checkpoint_state(FLAGS.model_dir)
@@ -314,7 +319,7 @@ def train(trainList, stage='landmark', init=False):
                 images_res, label_res, landmarks_res = sess.run([images, label, landmarks])
                 heatmaps = []
                 for item in landmarks_res:
-                    heatmaps.append(convertLandmark2Heatmap(item, 244, 244))
+                    heatmaps.append(convertLandmark2Heatmap(item, FLAGS.image_size, FLAGS.image_size))
                 heatmaps = np.array(heatmaps)
 
                 tensors = [trainOp, merge_summary, global_step, loss]
@@ -366,4 +371,4 @@ def freeze():
 
 
 if __name__ == '__main__':
-    train(['xxxxx.tfrecord'], stage='landmark', init=True)
+    train(['clothing.record'], stage='landmark', init=True)

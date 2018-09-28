@@ -64,6 +64,7 @@ def convertLandmark2Heatmap(landmarks, height, width):
         if landmark[0] >= 0 and landmark[1] >= 0:
             img[landmark[0], landmark[1]] = 1
         img = cv2.GaussianBlur(img, (31, 31), 0)
+        img = cv2.resize(img, (28, 28))
         heatmaps.append(img)
     heatmaps = np.array(heatmaps)
 
