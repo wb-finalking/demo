@@ -135,36 +135,42 @@ def createLandmarkRecord(output):
     def location(idx):
         if idx == -1:
             return [-1, -1]
-        return [row['landmark_location_y_'+str(idx)], row['landmark_location_x_'+str(idx)]]
+        return [int(row[1]['landmark_location_y_'+str(idx)]), int(row[1]['landmark_location_x_'+str(idx)])]
 
-    data = pd.read_csv('/home/lingdi/Downloads/Img/Anno/landmarks.txt', sep=' ')
+    data = pd.read_csv('/home/lingdi/Downloads/Img/Anno/landmarks.txt', sep='\s+', encoding = "utf-8")
+    data = data.where(data.notnull(), 0)
 
     path = '/home/lingdi/Downloads/Img/'
 
     threshold = 100
+    itr = 0
     with tf.python_io.TFRecordWriter(output) as writer:
-        for row in data.rows:
-            filenames = path + row['image_name']
-            labelID = row['clothes_type']
+        for row in data.iterrows():
+            filenames = path + row[1]['image_name']
+            labelID = row[1]['clothes_type']
             if labelID == 1:
                 # collar sleeve waistline hem
-                landmarks = [location(0), location(2), location(-1), location(4),
-                             location(1), location(3), location(-1), location(5)]
+                landmarks = [location(1), location(3), location(-1), location(5),
+                             location(2), location(4), location(-1), location(6)]
             elif labelID == 2:
                 # collar sleeve waistline hem
-                landmarks = [location(-1), location(-1), location(0), location(2),
-                             location(-1), location(-1), location(1), location(3)]
+                landmarks = [location(-1), location(-1), location(1), location(3),
+                             location(-1), location(-1), location(2), location(4)]
             elif labelID == 3:
                 # collar sleeve waistline hem
-                landmarks = [location(0), location(2), location(4), location(6),
-                             location(1), location(3), location(5), location(7)]
+                landmarks = [location(1), location(3), location(5), location(7),
+                             location(2), location(4), location(6), location(8)]
 
             try:
-                tf_example = dict_to_tf_example(filenames, labelID=labelID, landmarks=landmarks)
-                print("{} completed...".format(filenames))
+                tf_example = dict_to_tf_example(filenames, labelID=labelID, landmarks=np.array(landmarks))
+                itr += 1
+                # print("{} completed...".format(filenames))
             except:
                 print("{} error...".format(filenames))
                 continue
+
+            if (itr % 500 == 0):
+                print('num:{}'.format(itr))
             writer.write(tf_example.SerializeToString())
 
 """
