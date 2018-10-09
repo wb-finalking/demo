@@ -236,7 +236,7 @@ def train(trainList, stage='landmark', init=False):
         augment = False
     else:
         augment = True
-    images, label, landmarks = input_fn(True, trainList, params={
+    images, label, heatmaps, landmarks = input_fn(True, trainList, params={
         'augment': augment,
         'num_epochs': FLAGS.num_epochs,
         'num_classes': FLAGS.num_classes,
@@ -247,6 +247,8 @@ def train(trainList, stage='landmark', init=False):
         'height': FLAGS.image_size,
         'width': FLAGS.image_size,
     })
+    heatmaps = tf.image.resize_images(heatmaps, [28, 28],
+                                      method=tf.image.ResizeMethod.BILINEAR)
 
     # build net
     ground_heatmaps = tf.placeholder(tf.float32, shape=(None, 28, 28, 9))
@@ -316,15 +318,16 @@ def train(trainList, stage='landmark', init=False):
         train_writer = tf.summary.FileWriter(FLAGS.model_dir, sess.graph)
         while True:
             try:
-                images_res, label_res, landmarks_res = sess.run([images, label, landmarks])
-                heatmaps = []
-                for item in landmarks_res:
-                    heatmaps.append(convertLandmark2Heatmap(item, FLAGS.image_size, FLAGS.image_size))
-                heatmaps = np.array(heatmaps)
+                images_res, label_res, heatmaps_res, landmarks_res = \
+                    sess.run([images, label, heatmaps, landmarks])
+                # heatmaps = []
+                # for item in landmarks_res:
+                #     heatmaps.append(convertLandmark2Heatmap(item, FLAGS.image_size, FLAGS.image_size))
+                # heatmaps = np.array(heatmaps)
 
                 tensors = [trainOp, merge_summary, global_step, loss]
                 _, train_summary, itr, res_loss = sess.run(tensors,
-                                                           feed_dict={ground_heatmaps: heatmaps,
+                                                           feed_dict={ground_heatmaps: heatmaps_res,
                                                                       images_input: images_res,
                                                                       label_input: label_res})
                 logger.info("itr: {}".format(itr))

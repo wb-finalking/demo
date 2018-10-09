@@ -485,7 +485,7 @@ class AFGNet(object):
                 grammar_serial = tf.stack([heat_maps[maps_idxs[0]],
                                            heat_maps[maps_idxs[1]],
                                            heat_maps[maps_idxs[2]]], axis=3)
-            # grammar_serial_RK1 shape (batch_size, time_steps, row, col)
+            # grammar_serial shape (batch_size, time_steps, row, col)
             grammar_serial = tf.transpose(grammar_serial, (0, 3, 1, 2))
             grammar_serial = tf.expand_dims(grammar_serial, 4)
             refined_heatmaps = self.multiLayerBidirectionalRnn(1, 3, grammar_serial, [maps_num])

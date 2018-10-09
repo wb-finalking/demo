@@ -18,7 +18,7 @@ slim = tf.contrib.slim
     dict_to_tf_example:
     createTFRecord:
 """
-
+image_size = 224
 
 def int64_feature(value):
     return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
@@ -57,22 +57,47 @@ def contrastLimitedAHE(image):
 
     return Image.fromarray(image)
 
+def heatmapCompress(heatmap):
+    heatmap = heatmap * 255*255
+    heatmap[heatmap > 255] = 255
+    image = Image.fromarray(np.uint8(heatmap), 'L')
+    # image.show('')
+    # g = np.asarray(image)
+    # print('heatmapCompress:{}'.format(g[0:20, 0:20]))
+    # cv2.imshow('', heatmap)
+    # cv2.waitKey()
+
+    with BytesIO() as output:
+        image.save(output, 'JPEG')
+        data = output.getvalue()
+    return data
+
 def convertLandmark2Heatmap(landmarks, height, width):
     heatmaps = []
     for landmark in landmarks:
         img = np.zeros((height, width))
         if landmark[0] >= 0 and landmark[1] >= 0:
+            print('convertLandmark2Heatmap:{}'.format(img.shape))
             img[landmark[0], landmark[1]] = 1
         img = cv2.GaussianBlur(img, (31, 31), 0)
-        img = cv2.resize(img, (28, 28))
+        # img = cv2.resize(img, (28, 28))
         heatmaps.append(img)
     heatmaps = np.array(heatmaps)
 
-    background = 1 - np.max(heatmaps, axis=0)
-    heatmaps = np.concatenate([background, heatmaps], axis=0)
+    # background = 1 - np.max(heatmaps, axis=0)
+    # background = np.expand_dims(background, axis=0)
+    #
+    # heatmaps = np.concatenate([heatmaps, background], axis=0)
 
-    heatmaps = heatmaps.transpose([1, 2, 0])
-    return np.array(heatmaps)
+    # heatmaps = heatmaps.transpose([1, 2, 0])
+    # return np.array(heatmaps)
+
+    compressedHeatmaps = []
+    num_heatmaps = heatmaps.shape[0]
+    for heatmap in heatmaps:
+        compressedHeatmaps.append(heatmapCompress(heatmap))
+
+    return compressedHeatmaps
 
 def dict_to_tf_example(image_path, labelID, landmarks):
     with tf.gfile.GFile(image_path, 'rb') as fid:
@@ -88,7 +113,13 @@ def dict_to_tf_example(image_path, labelID, landmarks):
     # with BytesIO() as output:
     #     image.save(output, 'JPEG')
     #     data = output.getvalue()
-    # heatmaps = convertLandmark2Heatmap(landmarks, height, width)
+
+    # scale image and landmark
+    scale = np.maximum(image_size/width, image_size/height)
+    image.resize((np.int(width*scale), np.int(height*scale)))
+    landmarks = (landmarks*scale).astype(np.int)
+
+    heatmaps = convertLandmark2Heatmap(landmarks, np.int(height*scale), np.int(width*scale))
     # heatmaps = heatmaps.reshape(-1)
 
     example = tf.train.Example(features=tf.train.Features(feature={
@@ -97,6 +128,15 @@ def dict_to_tf_example(image_path, labelID, landmarks):
         'image/encoded': bytes_feature(encoded_jpg),
         'image/format': bytes_feature('jpg'.encode('utf8')),
         'landmarks': int64_list_feature(landmarks.reshape(-1)),
+        # collar sleeve waistline hem
+        'l-collar': bytes_feature(heatmaps[0]),
+        'l-sleeve': bytes_feature(heatmaps[1]),
+        'l-waistline': bytes_feature(heatmaps[2]),
+        'l-hem': bytes_feature(heatmaps[3]),
+        'r-collar': bytes_feature(heatmaps[4]),
+        'r-sleeve': bytes_feature(heatmaps[5]),
+        'r-waistline': bytes_feature(heatmaps[6]),
+        'r-hem': bytes_feature(heatmaps[7]),
         'labelID': int64_feature(labelID),
     }))
     return example
@@ -180,6 +220,12 @@ def createLandmarkRecord(output):
 """
 
 
+def parse_heatmap(parsed_image):
+    image = tf.image.decode_image(tf.reshape(parsed_image, shape=[]), 1)
+    image = tf.to_float(tf.image.convert_image_dtype(image, dtype=tf.uint8))
+    image.set_shape([None, None, 1])
+    return image
+
 def parse_record(raw_record):
     """Parse PASCAL image and label from a tf record."""
     keys_to_features = {
@@ -195,6 +241,22 @@ def parse_record(raw_record):
             tf.VarLenFeature(tf.int64),
         'labelID':
             tf.FixedLenFeature((), tf.int64),
+        'l-collar':
+            tf.FixedLenFeature((), tf.string, default_value=''),
+        'l-sleeve':
+            tf.FixedLenFeature((), tf.string, default_value=''),
+        'l-waistline':
+            tf.FixedLenFeature((), tf.string, default_value=''),
+        'l-hem':
+            tf.FixedLenFeature((), tf.string, default_value=''),
+        'r-collar':
+            tf.FixedLenFeature((), tf.string, default_value=''),
+        'r-sleeve':
+            tf.FixedLenFeature((), tf.string, default_value=''),
+        'r-waistline':
+            tf.FixedLenFeature((), tf.string, default_value=''),
+        'r-hem':
+            tf.FixedLenFeature((), tf.string, default_value=''),
     }
 
     parsed = tf.parse_single_example(raw_record, keys_to_features)
@@ -211,10 +273,21 @@ def parse_record(raw_record):
     image = tf.to_float(tf.image.convert_image_dtype(image, dtype=tf.uint8))
     image.set_shape([None, None, 3])
 
-    return image, labelID, landmarks
+    l_collar = parse_heatmap(parsed['l-collar'])
+    l_sleeve = parse_heatmap(parsed['l-sleeve'])
+    l_waistline = parse_heatmap(parsed['l-waistline'])
+    l_hem = parse_heatmap(parsed['l-hem'])
+    r_collar = parse_heatmap(parsed['r-collar'])
+    r_sleeve = parse_heatmap(parsed['r-sleeve'])
+    r_waistline = parse_heatmap(parsed['r-waistline'])
+    r_hem = parse_heatmap(parsed['r-hem'])
 
+    heatmaps = tf.concat([l_collar, l_sleeve, l_waistline, l_hem,
+                         r_collar, r_sleeve, r_waistline, r_hem], axis=2)
 
-def random_rescale_image_and_label(image, min_scale, max_scale):
+    return image, labelID, heatmaps, landmarks
+
+def random_rescale_image(image, heatmaps, min_scale, max_scale, target_height, target_width):
     """Rescale an image and label with in target scale.
 
     Rescales an image and label within the range of target scale.
@@ -242,16 +315,21 @@ def random_rescale_image_and_label(image, min_scale, max_scale):
     shape = tf.shape(image)
     height = tf.to_float(shape[0])
     width = tf.to_float(shape[1])
+    target_scale = tf.minimum(float(target_width) / tf.to_float(width),
+                              float(target_height) / tf.to_float(height))
+
     scale = tf.random_uniform([], minval=min_scale, maxval=max_scale, dtype=tf.float32)
-    new_height = tf.to_int32(height * scale)
-    new_width = tf.to_int32(width * scale)
+    new_height = tf.to_int32(height * scale * target_scale)
+    new_width = tf.to_int32(width * scale * target_scale)
     image = tf.image.resize_images(image, [new_height, new_width],
                                    method=tf.image.ResizeMethod.BILINEAR)
+    heatmaps = tf.image.resize_images(heatmaps, [new_height, new_width],
+                                      method=tf.image.ResizeMethod.BILINEAR)
 
-    return image
+    return image, heatmaps
 
 
-def random_rotate_image(image, lowAngle, highAngle):
+def random_rotate_image(image, heatmaps, lowAngle, highAngle):
     # tf.set_random_seed(666)
 
     def random_rotate_image_func(image):
@@ -263,7 +341,7 @@ def random_rotate_image(image, lowAngle, highAngle):
     return image_rotate
 
 
-def random_crop_or_pad_image_and_label(image, crop_height, crop_width):
+def random_crop_or_pad_image(image, heatmaps, crop_height, crop_width):
     """Crops and/or pads an image to a target width and height.
 
     Resizes an image to a target width and height by rondomly
@@ -282,19 +360,21 @@ def random_crop_or_pad_image_and_label(image, crop_height, crop_width):
 
     image_height = tf.shape(image)[0]
     image_width = tf.shape(image)[1]
-    image_pad = tf.image.pad_to_bounding_box(
-        image, 0, 0,
+    image_and_heatmaps = tf.concat([image, heatmaps], axis=2)
+    image_and_heatmaps_pad = tf.image.pad_to_bounding_box(
+        image_and_heatmaps, 0, 0,
         tf.maximum(crop_height, image_height),
         tf.maximum(crop_width, image_width))
-    image_pad = tf.random_crop(
-        image_pad, [crop_height, crop_width, 3])
+    image_and_heatmaps_crop = tf.random_crop(
+        image_and_heatmaps_pad, [crop_height, crop_width, 11])
 
-    image_crop = image_pad[:, :, :3]
+    image_crop = image_and_heatmaps_crop[:, :, :3]
+    heatmaps_crop = image_and_heatmaps_crop[:, :, 3:]
 
-    return image_crop
+    return image_crop, heatmaps_crop
 
 
-def resize_and_random_crop_image(image, crop_height, crop_width):
+def resize_and_random_crop_image(image, heatmaps, crop_height, crop_width):
     image_height = tf.shape(image)[0]
     image_width = tf.shape(image)[1]
 
@@ -314,10 +394,10 @@ def resize_and_random_crop_image(image, crop_height, crop_width):
     image_crop = tf.random_crop(image_pad, [crop_height, crop_width, 3])
     image_crop = image_crop[:, :, :3]
 
-    return image_crop
+    return image_crop, heatmaps
 
 
-def random_flip_left_right_image_and_label(image):
+def random_flip_left_right_image(image, heatmaps):
     """Randomly flip an image and label horizontally (left to right).
 
     Args:
@@ -330,8 +410,9 @@ def random_flip_left_right_image_and_label(image):
     uniform_random = tf.random_uniform([], 0, 1.0)
     mirror_cond = tf.less(uniform_random, .5)
     image = tf.cond(mirror_cond, lambda: tf.reverse(image, [1]), lambda: image)
+    heatmaps = tf.cond(mirror_cond, lambda: tf.reverse(heatmaps, [1]), lambda: heatmaps)
 
-    return image
+    return image, heatmaps
 
 
 def mean_image_subtraction(image, means=(123.68, 116.779, 103.939)):
@@ -367,7 +448,7 @@ def mean_image_subtraction(image, means=(123.68, 116.779, 103.939)):
     return tf.concat(axis=2, values=channels)
 
 
-def resizeImageKeepScale(image, targetW=299, targetH=299):
+def resizeImageKeepScale(image, heatmaps, targetW=299, targetH=299):
     shape = tf.shape(image)
     height = tf.to_float(shape[0])
     width = tf.to_float(shape[1])
@@ -376,39 +457,43 @@ def resizeImageKeepScale(image, targetW=299, targetH=299):
     new_width = tf.to_int32(width * scale)
     image = tf.image.resize_images(image, [new_height, new_width],
                                    method=tf.image.ResizeMethod.BILINEAR)
+    heatmaps = tf.image.resize_images(heatmaps, [new_height, new_width],
+                                   method=tf.image.ResizeMethod.BILINEAR)
     # image_pad = tf.image.pad_to_bounding_box(
     #     image, 0, 0,
     #     targetH, targetW)
 
-    return image
+    return image, heatmaps
 
 
-def preprocess_image(image, labelID, landmarks, is_training, params):
+def preprocess_image(image, labelID, heatmaps, landmarks, is_training, params):
     """Preprocess a single image of layout [height, width, depth]."""
-    if is_training and params['augment']:
+    if is_training:
         # # Randomly scale the image and label.
-        image = random_rescale_image_and_label(
-            image, params['min_scale'], params['max_scale'])
-
-        # Randomly rotate the image between lowAngel and highAngel
-        # image = random_rotate_image(image, -45.0, 45.0)
+        image, heatmaps = random_rescale_image(
+            image, heatmaps, params['min_scale'], params['max_scale'],
+            params['height'], params['width'])
 
         # resize Image and keep scale
-        image = resizeImageKeepScale(image, targetW=params['width'], targetH=params['height'])
+        # image, heatmaps = resizeImageKeepScale(image, heatmaps, targetW=params['width'], targetH=params['height'])
 
         # Randomly crop or pad a [_HEIGHT, _WIDTH] section of the image and label.
-        image = resize_and_random_crop_image(
-            image, params['height'], params['width'])
+        image, heatmaps = random_crop_or_pad_image(
+            image, heatmaps, params['height'], params['width'])
 
         # Randomly flip the image and label horizontally.
-        image = random_flip_left_right_image_and_label(image)
+        image, heatmaps = random_flip_left_right_image(image, heatmaps)
 
         # image.set_shape([params['height'], params['width'], 3])
 
-    # image = mean_image_subtraction(image)
     label = slim.one_hot_encoding(labelID, params['num_classes'])
 
-    return image, label, landmarks
+    heatmaps = heatmaps / 255
+    background = 1 - tf.reduce_max(heatmaps, axis=2)
+    background = tf.expand_dims(background, axis=2)
+    heatmaps = tf.concat([heatmaps, background], axis=2)
+
+    return image, label, heatmaps, landmarks
 
 
 def input_fn(is_training, recordFilename, params):
@@ -433,8 +518,8 @@ def input_fn(is_training, recordFilename, params):
 
     dataset = dataset.map(parse_record)
     dataset = dataset.map(
-        lambda image, labelID, landmarks:
-        preprocess_image(image, labelID, landmarks, is_training, params=params))
+        lambda image, labelID, heatmaps, landmarks:
+        preprocess_image(image, labelID, heatmaps, landmarks, is_training, params=params))
     dataset = dataset.prefetch(params['batch_size'])
 
     # We call repeat after shuffling, rather than before, to prevent separate
@@ -443,9 +528,9 @@ def input_fn(is_training, recordFilename, params):
     dataset = dataset.batch(params['batch_size'])
 
     iterator = dataset.make_one_shot_iterator()
-    images, label, landmarks = iterator.get_next()
+    images, label, heatmaps, landmarks = iterator.get_next()
 
-    return images, label, landmarks
+    return images, label, heatmaps, landmarks
 
 
 def testTfrecord(trainList):
