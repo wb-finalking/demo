@@ -77,8 +77,8 @@ def convertLandmark2Heatmap(landmarks, height, width):
     for landmark in landmarks:
         img = np.zeros((height, width))
         if landmark[0] >= 0 and landmark[1] >= 0:
-            print('convertLandmark2Heatmap:{}'.format(img.shape))
-            img[landmark[0], landmark[1]] = 1
+            # print('convertLandmark2Heatmap:{}'.format(img.shape))
+            img[int(landmark[0]), int(landmark[1])] = 1
         img = cv2.GaussianBlur(img, (31, 31), 0)
         # img = cv2.resize(img, (28, 28))
         heatmaps.append(img)
@@ -115,9 +115,10 @@ def dict_to_tf_example(image_path, labelID, landmarks):
     #     data = output.getvalue()
 
     # scale image and landmark
-    scale = np.maximum(image_size/width, image_size/height)
-    image.resize((np.int(width*scale), np.int(height*scale)))
-    landmarks = (landmarks*scale).astype(np.int)
+    scale = np.maximum(1.0*image_size/width, 1.0*image_size/height)
+    image.resize((int(width*scale), int(height*scale)))
+    landmarks = np.floor(landmarks * scale).astype(np.int)
+    # print('scale:{}, landmarks:{}'.format(scale, landmarks))
 
     heatmaps = convertLandmark2Heatmap(landmarks, np.int(height*scale), np.int(width*scale))
     # heatmaps = heatmaps.reshape(-1)
@@ -216,7 +217,6 @@ def createLandmarkRecord(output):
 
 """
     read tfrecorde
-
 """
 
 
@@ -289,15 +289,12 @@ def parse_record(raw_record):
 
 def random_rescale_image(image, heatmaps, min_scale, max_scale, target_height, target_width):
     """Rescale an image and label with in target scale.
-
     Rescales an image and label within the range of target scale.
-
     Args:
     image: 3-D Tensor of shape `[height, width, channels]`.
     label: 3-D Tensor of shape `[height, width, 1]`.
     min_scale: Min target scale.
     max_scale: Max target scale.
-
     Returns:
     Cropped and/or padded image.
     If `images` was 3-D, a 3-D float Tensor of shape
@@ -343,15 +340,12 @@ def random_rotate_image(image, heatmaps, lowAngle, highAngle):
 
 def random_crop_or_pad_image(image, heatmaps, crop_height, crop_width):
     """Crops and/or pads an image to a target width and height.
-
     Resizes an image to a target width and height by rondomly
     cropping the image or padding it evenly with zeros.
-
     Args:
     image: 3-D Tensor of shape `[height, width, channels]`.
     crop_height: The new height.
     crop_width: The new width.
-
     Returns:
     Cropped and/or padded image.
     If `images` was 3-D, a 3-D float Tensor of shape
@@ -399,10 +393,8 @@ def resize_and_random_crop_image(image, heatmaps, crop_height, crop_width):
 
 def random_flip_left_right_image(image, heatmaps):
     """Randomly flip an image and label horizontally (left to right).
-
     Args:
     image: A 3-D tensor of shape `[height, width, channels].`
-
     Returns:
     A 3-D tensor of the same type and shape as `image`.
     A 3-D tensor of the same type and shape as `label`.
@@ -417,20 +409,15 @@ def random_flip_left_right_image(image, heatmaps):
 
 def mean_image_subtraction(image, means=(123.68, 116.779, 103.939)):
     """Subtracts the given means from each image channel.
-
     For example:
     means = [123.68, 116.779, 103.939]
     image = _mean_image_subtraction(image, means)
-
     Note that the rank of `image` must be known.
-
     Args:
     image: a tensor of size [height, width, C].
     means: a C-vector of values to subtract from each channel.
-
     Returns:
     the centered image.
-
     Raises:
     ValueError: If the rank of `image` is unknown, if `image` has a rank other
       than three or if the number of channels in `image` doesn't match the
@@ -498,12 +485,10 @@ def preprocess_image(image, labelID, heatmaps, landmarks, is_training, params):
 
 def input_fn(is_training, recordFilename, params):
     """Input_fn using the tf.data input pipeline for CIFAR-10 dataset.
-
     Args:
     is_training: A boolean denoting whether the input is for training.
     data_dir: The directory containing the input data.
     num_epochs: The number of epochs to repeat the dataset.
-
     Returns:
     A tuple of images and labels.
     """

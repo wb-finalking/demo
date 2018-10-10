@@ -38,7 +38,7 @@ tf.app.flags.DEFINE_integer('num_epochs', 22, 'The epochs of train data.')
 
 tf.app.flags.DEFINE_integer('batch_size', 5, 'The number of samples in each batch.')
 
-tf.app.flags.DEFINE_integer('train_images_num', 5, 'The number of images in train data.')
+tf.app.flags.DEFINE_integer('train_images_num', 2800, 'The number of images in train data.')
 
 tf.app.flags.DEFINE_float('dropout_keep_prob', 0.5, 'VGG dropout keep prob')
 
@@ -107,7 +107,7 @@ tf.app.flags.DEFINE_string(
     'Specifies how the learning rate is decayed. One of "fixed", "exponential",'
     ' or "polynomial"')
 
-tf.app.flags.DEFINE_float('learning_rate', 0.01, 'Initial learning rate.')
+tf.app.flags.DEFINE_float('learning_rate', 0.001, 'Initial learning rate.')
 
 tf.app.flags.DEFINE_float(
     'end_learning_rate', 0.00001,
@@ -141,14 +141,11 @@ FLAGS = tf.app.flags.FLAGS
 
 def configure_learning_rate(num_samples_per_epoch, global_step):
     """Configures the learning rate.
-
     Args:
       num_samples_per_epoch: The number of samples in each epoch of training.
       global_step: The global_step tensor.
-
     Returns:
       A `Tensor` representing the learning rate.
-
     Raises:
       ValueError: if
     """
@@ -180,13 +177,10 @@ def configure_learning_rate(num_samples_per_epoch, global_step):
 
 def configure_optimizer(learning_rate):
     """Configures the optimizer used for training.
-
     Args:
       learning_rate: A scalar or `Tensor` learning rate.
-
     Returns:
       An instance of an optimizer.
-
     Raises:
       ValueError: if FLAGS.optimizer is not recognized.
     """
@@ -374,4 +368,4 @@ def freeze():
 
 
 if __name__ == '__main__':
-    train(['clothing.record'], stage='landmark', init=True)
+    train(['clothing.record'], stage='landmark', init=False)

@@ -13,7 +13,6 @@ from tensorflow.python.ops.rnn_cell_impl import _zero_state_tensors
 import tensorflow.contrib.slim as slim
 from tensorflow.python.framework import graph_util
 import cv2
-import numpy as np
 from PIL import Image
 import pandas as pd
 import csv
@@ -24,12 +23,9 @@ from AFG_Net import AFGNet
 
 def testTfExample():
     with tf.python_io.TFRecordWriter('test.tfrecord') as writer:
-        for i in range(5):
-            filenames = 'C:/project/fabricImages/fabric/'+str(i)+'.jpg'
-            tf_example = dict_to_tf_example(filenames, 0, np.array([[10, 10], [100, 100],
-                                                           [11, 10], [101, 100],
-                                                           [12, 10], [102, 100],
-                                                           [13, 10], [103, 100]]))
+        for i in range(2):
+            filenames = 'C:/project/fabricImages/fabric/'+str(1)+'.jpg'
+            tf_example = dict_to_tf_example(filenames, 0, [[10, 10], [100, 100]])
             writer.write(tf_example.SerializeToString())
 
 def testTfParser():
@@ -42,7 +38,7 @@ def testTfParser():
     dataset = dataset.batch(1)
 
     iterator = dataset.make_one_shot_iterator()
-    images, id, heatmaps, land = iterator.get_next()
+    images, id, heatmaps = iterator.get_next()
 
     # heatmaps = tf.transpose(heatmaps, (3,0,1,2))
     with tf.Session() as sess:
@@ -50,7 +46,7 @@ def testTfParser():
 
     print(heatmaps_r.shape)
     print(heatmaps_r[heatmaps_r>0])
-    g = heatmaps_r[0, :, :, 0]
+    g = heatmaps_r[0, :, :, 0]*255
     cv2.imshow('', cv2.merge([g,g,g]))
     cv2.waitKey()
 
@@ -67,31 +63,11 @@ def testAFG_Net():
 
     print(tf.trainable_variables())
 
-def testInput():
-    images, label, heatmaps, landmarks = input_fn(True, ['test.tfrecord'], params={
-        'num_epochs': 1,
-        'num_classes': 12,
-        'batch_size': 1,
-        'buffer_size': 5,
-        'min_scale': 0.8,
-        'max_scale': 1.2,
-        'height': 224,
-        'width': 224,
-    })
-
-    with tf.Session() as sess:
-        heatmaps_res = sess.run(heatmaps)
-
-        print('heatmapCompress:{}'.format(heatmaps_res[heatmaps_res>0]))
-        cv2.imshow('', heatmaps_res[0,:,:,1])
-        cv2.waitKey()
-
 
 if __name__ == '__main__':
     # testTfExample()
     # testTfParser()
-    # testAFG_Net()
-    testInput()
+    testAFG_Net()
 
     # img = convertLandmark2Heatmap([[71, 71]], 600, 600)
     # print(img.shape)

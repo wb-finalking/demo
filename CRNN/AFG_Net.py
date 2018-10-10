@@ -485,7 +485,7 @@ class AFGNet(object):
                 grammar_serial = tf.stack([heat_maps[maps_idxs[0]],
                                            heat_maps[maps_idxs[1]],
                                            heat_maps[maps_idxs[2]]], axis=3)
-            # grammar_serial shape (batch_size, time_steps, row, col)
+            # grammar_serial_RK1 shape (batch_size, time_steps, row, col)
             grammar_serial = tf.transpose(grammar_serial, (0, 3, 1, 2))
             grammar_serial = tf.expand_dims(grammar_serial, 4)
             refined_heatmaps = self.multiLayerBidirectionalRnn(1, 3, grammar_serial, [maps_num])
@@ -513,33 +513,34 @@ class AFGNet(object):
         for T in range(num_layers):
             # 为什么在这加个variable_scope,被逼的,tf在rnn_cell的__call__中非要搞一个命名空间检查
             # 恶心的很.如果不在这加的话,会报错的.
-            # with tf.variable_scope(None, default_name="bidirectional-rnn"):
+            with tf.variable_scope(None, default_name="BCRNN_"+str(T)):
 
-            # rnn_cell_fw = CRNN(2, [28, 28, 1], 1, [2, 2])
-            # rnn_cell_bw = CRNN(2, [28, 28, 1], 1, [2, 2])
+                # rnn_cell_fw = CRNN(2, [28, 28, 1], 1, [2, 2])
+                # rnn_cell_bw = CRNN(2, [28, 28, 1], 1, [2, 2])
 
-            kwarg = {'input_shape':[28, 28, 1], 'output_channels':1, 'kernel_shape':[2, 2]}
-            rnn_cell_fw = tf.contrib.rnn.Conv2DLSTMCell('conv_2d_lstm_cell_fw',**kwarg)
-            rnn_cell_bw = tf.contrib.rnn.Conv2DLSTMCell('conv_2d_lstm_cell_bw',**kwarg)
+                kwarg = {'input_shape':[28, 28, 1], 'output_channels':1, 'kernel_shape':[2, 2]}
+                rnn_cell_fw = tf.contrib.rnn.Conv2DLSTMCell('conv_2d_lstm_cell_fw',**kwarg)
+                rnn_cell_bw = tf.contrib.rnn.Conv2DLSTMCell('conv_2d_lstm_cell_bw',**kwarg)
 
-            initial_state_fw = rnn_cell_fw.zero_state(batch_size, dtype=tf.float32)
-            initial_state_bw = rnn_cell_bw.zero_state(batch_size, dtype=tf.float32)
-            output, state = tf.nn.bidirectional_dynamic_rnn(rnn_cell_fw, rnn_cell_bw,
-                                                            _inputs, seq_lengths,
-                                                            initial_state_fw, initial_state_bw,
-                                                            dtype=tf.float32,
-                                                            scope="BCRNN_"+str(T))
-            # output, state = tf.nn.static_bidirectional_rnn(rnn_cell_fw, rnn_cell_bw,
-            #                                                _inputs, sequence_length=seq_lengths,
-            #                                                initial_state_fw=initial_state_fw,
-            #                                                initial_state_bw=initial_state_bw,
-            #                                                dtype=tf.float32,
-            #                                                scope="BCRNN_" + str(T))
-            # generate input for next bcrnn layer
-            # _inputs = tf.concat(output, 2)
-            output_fw, output_bw = output[0], output[1]
-            # _inputs shape (batch_size, time_steps, row, col)
-            _inputs = _inputs + output_fw + output_bw
+                initial_state_fw = rnn_cell_fw.zero_state(batch_size, dtype=tf.float32)
+                initial_state_bw = rnn_cell_bw.zero_state(batch_size, dtype=tf.float32)
+                output, state = tf.nn.bidirectional_dynamic_rnn(rnn_cell_fw, rnn_cell_bw,
+                                                                _inputs,
+                                                                initial_state_fw = initial_state_fw,
+                                                                initial_state_bw = initial_state_bw,
+                                                                dtype=tf.float32,
+                                                                scope="BCRNN_"+str(T))
+                # output, state = tf.nn.static_bidirectional_rnn(rnn_cell_fw, rnn_cell_bw,
+                #                                                _inputs, sequence_length=seq_lengths,
+                #                                                initial_state_fw=initial_state_fw,
+                #                                                initial_state_bw=initial_state_bw,
+                #                                                dtype=tf.float32,
+                #                                                scope="BCRNN_" + str(T))
+                # generate input for next bcrnn layer
+                # _inputs = tf.concat(output, 2)
+                output_fw, output_bw = output[0], output[1]
+                # _inputs shape (batch_size, time_steps, row, col)
+                _inputs = _inputs + output_fw + output_bw
 
         return _inputs
 

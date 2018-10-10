@@ -46,22 +46,62 @@ tf.app.flags.DEFINE_string(
     'model_dir', 'model',
     'Directory where checkpoints and event logs are written to.')
 
+tf.app.flags.DEFINE_float(
+    'weight_decay', 0.0005, 'The weight decay on the model weights.')
+
 FLAGS = tf.app.flags.FLAGS
 
-def predByImage(image):
-    image_array = np.array(image)
-    image_input = np.expand_dims(image_array, axis=0)
+def resizeImage(image, targetW=224, targetH=224):
+    w = image.size[0]
+    h = image.size[1]
 
-    afg_net = AFGNet()
-    images_input = tf.placeholder(tf.float32, shape=(None, FLAGS.image_size, FLAGS.image_size, 3))
-    net = afg_net.buildNet(images_input, FLAGS.num_classes, weight_decay=FLAGS.weight_decay,
-                           is_training=True, dropout_keep_prob=FLAGS.dropout_keep_prob,
-                           stage='classification')
+    ratio = max(float(targetW) / w, float(targetH) / h)
+    w = int(w * ratio)
+    h = int(h * ratio)
+    im = image.resize((w, h), Image.ANTIALIAS)
 
-    with tf.Session() as sess:
+    cood = [(w - targetW) // 2, (h - targetH) // 2,
+            targetW + (w - targetW) // 2, targetH + (h - targetH) // 2]
+
+    return im.crop(cood)
+
+def modelDecorator(func):
+    def wrapper():
+        global sess
+        global net
+        global images_input
+
+        afg_net = AFGNet()
+        images_input = tf.placeholder(tf.float32, shape=(None, FLAGS.image_size, FLAGS.image_size, 3))
+        net = afg_net.buildNet(images_input, FLAGS.num_classes, weight_decay=FLAGS.weight_decay,
+                               is_training=False, dropout_keep_prob=FLAGS.dropout_keep_prob,
+                               stage='landmark')
+
+        with tf.Session() as sess:
+            saver = tf.train.Saver()
+            ckpt = tf.train.get_checkpoint_state(FLAGS.model_dir)
+            if ckpt and ckpt.model_checkpoint_path:
+                saver.restore(sess, ckpt.model_checkpoint_path)
+                logger.info("Model restored...")
+
+            func()
+
+    return wrapper
+
+@modelDecorator
+def testImage():
+    for i in range(2, 10):
+        filenames = '/home/lingdi/project/fabricImages/fabric/' + str(i) + '.jpg'
+        image = Image.open(filenames)
+        image = resizeImage(image)
+
+        image_array = np.array(image)
+        image_input = np.expand_dims(image_array, axis=0)
+
         pred = sess.run(net, feed_dict={images_input: image_input})
 
-    print(pred)
+        print(pred)
+
 
 if __name__ == '__main__':
-    predByImage()
+    testImage()
