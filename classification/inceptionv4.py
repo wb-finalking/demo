@@ -9,6 +9,7 @@ from classifyPreprocess import *
 import cv2
 from PIL import Image
 import pandas as pd
+import numpy as np
 import csv
 import json
 import logging
@@ -662,6 +663,65 @@ class Inceptionv4:
             raise ValueError('Optimizer [%s] was not recognized', FLAGS.optimizer)
         return optimizer
 
+def ckptModelDecorator(func):
+    def wraper(is_training=False):
+        global inputs_tensor
+        global pred_tensor
+        global logits
+        global sess
+
+        inceptionv4 = Inceptionv4()
+
+        inputs_tensor = tf.placeholder(tf.float32, shape=(None, 299, 299, 3))
+
+        logits, end_points = inceptionv4.buildNet(inputs_tensor,
+                                                  num_classes=(FLAGS.num_classes - FLAGS.labels_offset),
+                                                  weight_decay=FLAGS.weight_decay,
+                                                  is_training=is_training)
+        pred_tensor = end_points['Predictions']
+
+        print(tf.contrib.slim.get_variables_to_restore(exclude=[]))
+        w = tf.get_default_graph().get_tensor_by_name('InceptionV4/Conv2d_1a_3x3/BatchNorm/beta:0')
+        with tf.Session() as sess:
+            saver = tf.train.Saver()
+            ckpt = tf.train.get_checkpoint_state(FLAGS.model_dir)
+            saver.restore(sess, ckpt.model_checkpoint_path)
+            logger.info("Model restored...")
+
+            func()
+
+    return wraper
+
+def pbModelDecorator(func):
+    def wrapper():
+        global sess
+        global inputs_tensor
+        global pred_tensor
+
+        net = tf.Graph()
+        with net.as_default():
+            graphDef = tf.GraphDef()
+
+            with tf.gfile.GFile('frozen.pb', 'rb') as fid:
+                serializedGraph = fid.read()
+                graphDef.ParseFromString(serializedGraph)
+                tf.import_graph_def(graphDef, name='')
+
+        config = tf.ConfigProto()
+        config.intra_op_parallelism_threads = 44
+        config.inter_op_parallelism_threads = 44
+        res = []
+
+        with tf.Session(graph=net, config=config) as sess:
+            # get tensor
+            inputs_tensor = net.get_tensor_by_name('inputs:0')
+            pred_tensor = net.get_tensor_by_name('Predictions:0')
+
+            func()
+
+    return wrapper
+
+@ckptModelDecorator
 def test():
     catagory = ['茄克', '毛衫', '短袖T恤', '长袖T恤', '棉服', '长袖衬衫', '中袖衬衫',
                 '卫衣', '风衣', '休闲西服', '马甲', '羽绒服', '开衫', '牛仔长裤', '牛仔中裤',
@@ -681,30 +741,13 @@ def test():
     # img = mean_image_subtraction(img)
     img = np.expand_dims(img, axis=0)
 
-    inceptionv4 = Inceptionv4()
+    pre = sess.run(pred_tensor,feed_dict={inputs_tensor:img})
+    logger.debug('class :{}'.format(np.argmax(pre)))
 
-    inputs = tf.placeholder(tf.float32, shape=(None, 299, 299, 3))
+    print(catagory[np.argmax(pre)])
+    print(pre)
 
-    logits, end_points = inceptionv4.buildNet(inputs,
-                                              num_classes=(FLAGS.num_classes - FLAGS.labels_offset),
-                                              weight_decay=FLAGS.weight_decay,
-                                              is_training=False)
-
-    print(tf.contrib.slim.get_variables_to_restore(exclude=[]))
-    w = tf.get_default_graph().get_tensor_by_name('InceptionV4/Conv2d_1a_3x3/BatchNorm/beta:0')
-    with tf.Session() as sess:
-        saver = tf.train.Saver()
-        ckpt = tf.train.get_checkpoint_state(FLAGS.model_dir)
-        saver.restore(sess, ckpt.model_checkpoint_path)
-        logger.info("Model restored...")
-
-        tensors = [end_points['Predictions'], w]
-        pre, w = sess.run(tensors,feed_dict={inputs:img})
-        logger.debug('class :{}'.format(np.argmax(pre)))
-
-        print(catagory[np.argmax(pre)])
-        print(pre)
-
+@ckptModelDecorator
 def testSemir(seg):
     def getCatagory(dict):
         for key in dict.keys():
@@ -749,76 +792,57 @@ def testSemir(seg):
 
         return img, getCatagoryID(c)
 
+    d = {}
+    data = pd.read_csv('demo_clothings_backup.csv')
+    keys = data.keys()
+    for key in keys:
+        d[key] = data[key].values
 
-    inceptionv4 = Inceptionv4()
+    num = 0
+    acc = 0
+    datas = []
+    for idx, c in enumerate(d['category']):
+        filename = d['file_name'][idx]
+        seg = d['segment'][idx]
 
-    inputs = tf.placeholder(tf.float32, shape=(None, 299, 299, 3))
+        try:
+            img, catagoryID = getCatagoryAndImage(filename, seg, c)
+        except:
+            print('open Image error...')
+            continue
 
-    logits, end_points = inceptionv4.buildNet(inputs,
-                                              num_classes=(FLAGS.num_classes - FLAGS.labels_offset),
-                                              weight_decay=FLAGS.weight_decay,
-                                              is_training=False)
+        num += 1
 
-    print(tf.contrib.slim.get_variables_to_restore(exclude=[]))
-    w = tf.get_default_graph().get_tensor_by_name('InceptionV4/Conv2d_1a_3x3/BatchNorm/beta:0')
-    with tf.Session() as sess:
-        saver = tf.train.Saver()
-        ckpt = tf.train.get_checkpoint_state(FLAGS.model_dir)
-        saver.restore(sess, ckpt.model_checkpoint_path)
-        logger.info("Model restored...")
+        pre = sess.run(pred_tensor, feed_dict={inputs_tensor: img})
 
-        d = {}
-        data = pd.read_csv('demo_clothings_backup.csv')
-        keys = data.keys()
-        for key in keys:
-            d[key] = data[key].values
+        print(np.argmax(pre[0]))
+        single_dict = {}
+        try:
+            if np.argmax(pre[0]) == catagoryID:
+                acc += 1
+                single_dict['acc'] = 'true'
+            else:
+                single_dict['acc'] = 'false'
+        except:
+            print('Not contain this type...')
+            continue
 
-        num = 0
-        acc = 0
-        datas = []
-        for idx, c in enumerate(d['category']):
-            filename = d['file_name'][idx]
-            seg = d['segment'][idx]
+        pre = np.array(pre).reshape(-1)
+        single_dict['name'] = filename
+        single_dict['catagory'] = c
+        single_dict['pre'] = id2catagory(np.argmax(pre))
+        single_dict['prob'] = pre[np.argmax(pre)]
+        single_dict['vector'] = pre
 
-            try:
-                img, catagoryID = getCatagoryAndImage(filename, seg, c)
-            except:
-                print('open Image error...')
-                continue
+        datas.append(single_dict)
 
+    print('acc: {}/{}'.format(acc, num))
+    with open('res.csv', 'w') as f:
+        writer = csv.DictWriter(f, ['acc', 'name', 'catagory', 'pre', 'prob', 'vector'])
+        writer.writeheader()
+        writer.writerows(datas)
 
-            num += 1
-
-            tensors = [end_points['Predictions']]
-            pre = sess.run(tensors, feed_dict={inputs: img})
-
-            print(np.argmax(pre[0]))
-            single_dict = {}
-            try:
-                if np.argmax(pre[0]) == catagoryID:
-                    acc += 1
-                    single_dict['acc'] = 'true'
-                else:
-                    single_dict['acc'] = 'false'
-            except:
-                print('Not contain this type...')
-                continue
-
-            pre = np.array(pre).reshape(-1)
-            single_dict['name'] = filename
-            single_dict['catagory'] = c
-            single_dict['pre'] = id2catagory(np.argmax(pre))
-            single_dict['prob'] = pre[np.argmax(pre)]
-            single_dict['vector'] = pre
-
-            datas.append(single_dict)
-
-        print('acc: {}/{}'.format(acc, num))
-        with open('res.csv', 'w') as f:
-            writer = csv.DictWriter(f, ['acc', 'name', 'catagory', 'pre', 'prob', 'vector'])
-            writer.writeheader()
-            writer.writerows(datas)
-
+@ckptModelDecorator
 def testSemirWithJson(seg):
     def getCatagory(dict):
         for key in dict.keys():
@@ -835,87 +859,69 @@ def testSemirWithJson(seg):
     def id2catagory(id):
         return catagory_item[id]
 
-    inceptionv4 = Inceptionv4()
+    datas = []
+    acc = 0
+    num = 0
+    img_path = '/home/lingdi/project/seg/{}/'.format(seg)
+    for root, dirs, files in os.walk(img_path):
+        for fn in files:
+            filenames = root + os.sep + fn
+            if filenames.split('.')[-1] != 'json':
+                continue
+            with open(filenames, 'r') as load_f:
+                load_dict = json.load(load_f, encoding='gbk')
 
-    inputs = tf.placeholder(tf.float32, shape=(None, 299, 299, 3))
+            catagory = getCatagory(load_dict['flags'])
 
-    logits, end_points = inceptionv4.buildNet(inputs,
-                                              num_classes=(FLAGS.num_classes - FLAGS.labels_offset),
-                                              weight_decay=FLAGS.weight_decay,
-                                              is_training=False)
+            if catagory == '__ignore__':
+                continue
+            try:
+                img = Image.open(img_path + load_dict['imagePath'])
+            except:
+                print('No image...')
+                continue
+            num += 1
+            img = img.convert('RGB')
+            img = resize(img, 299, 299)
+            # img.show('')
+            img = np.array(img)
+            (R, G, B) = cv2.split(img)
+            R = R - 123.68
+            G = G - 116.779
+            B = B - 103.939
+            img = cv2.merge([R, G, B])
+            img = np.expand_dims(img, axis=0)
 
-    print(tf.contrib.slim.get_variables_to_restore(exclude=[]))
-    w = tf.get_default_graph().get_tensor_by_name('InceptionV4/Conv2d_1a_3x3/BatchNorm/beta:0')
-    with tf.Session() as sess:
-        saver = tf.train.Saver()
-        ckpt = tf.train.get_checkpoint_state(FLAGS.model_dir)
-        saver.restore(sess, ckpt.model_checkpoint_path)
-        logger.info("Model restored...")
+            pre = sess.run(pred_tensor, feed_dict={inputs_tensor: img})
 
-        datas = []
-        acc = 0
-        num = 0
-        img_path = '/home/lingdi/project/seg/{}/'.format(seg)
-        for root, dirs, files in os.walk(img_path):
-            for fn in files:
-                filenames = root + os.sep + fn
-                if filenames.split('.')[-1] != 'json':
-                    continue
-                with open(filenames, 'r') as load_f:
-                    load_dict = json.load(load_f, encoding='gbk')
+            print(np.argmax(pre[0]))
+            single_dict = {}
+            print('=={}'.format(catagory == catagory_item[0].decode('utf-8').encode('gbk')))
+            try:
+                print(catagory)
+                if np.argmax(pre[0]) == int(getCatagoryID(catagory)):
+                    acc += 1
+                    single_dict['acc'] = 'true'
+                else:
+                    single_dict['acc'] = 'false'
+            except:
+                print('Not contain this type...')
+                continue
 
-                catagory = getCatagory(load_dict['flags'])
+            pre = np.array(pre).reshape(-1)
+            single_dict['name'] = load_dict['imagePath']
+            single_dict['catagory'] = catagory
+            single_dict['pre'] = catagory_item[np.argmax(pre)]
+            single_dict['prob'] = pre[np.argmax(pre)]
+            single_dict['vector'] = pre
 
-                if catagory == '__ignore__':
-                    continue
-                try:
-                    img = Image.open(img_path + load_dict['imagePath'])
-                except:
-                    print('No image...')
-                    continue
-                num += 1
-                img = img.convert('RGB')
-                img = resize(img, 299, 299)
-                # img.show('')
-                img = np.array(img)
-                (R, G, B) = cv2.split(img)
-                R = R - 123.68
-                G = G - 116.779
-                B = B - 103.939
-                img = cv2.merge([R, G, B])
-                img = np.expand_dims(img, axis=0)
+            datas.append(single_dict)
 
-                tensors = [end_points['Predictions']]
-                pre = sess.run(tensors, feed_dict={inputs: img})
-
-                print(np.argmax(pre[0]))
-                single_dict = {}
-                print('=={}'.format(catagory == catagory_item[0].decode('utf-8').encode('gbk')))
-                try:
-                    print(catagory)
-                    if np.argmax(pre[0]) == int(getCatagoryID(catagory)):
-                        acc += 1
-                        single_dict['acc'] = 'true'
-                    else:
-                        single_dict['acc'] = 'false'
-                except:
-                    print('Not contain this type...')
-                    continue
-
-                pre = np.array(pre).reshape(-1)
-                single_dict['name'] = load_dict['imagePath']
-                single_dict['catagory'] = catagory
-                single_dict['pre'] = catagory_item[np.argmax(pre)]
-                single_dict['prob'] = pre[np.argmax(pre)]
-                single_dict['vector'] = pre
-
-                datas.append(single_dict)
-
-        print('{} acc: {}/{}'.format(seg, acc, num))
-        with open('seg_{}.csv'.format(seg), 'w') as f:
-            writer = csv.DictWriter(f, ['acc', 'name', 'catagory', 'pre', 'prob', 'vector'])
-            writer.writeheader()
-            writer.writerows(datas)
+    print('{} acc: {}/{}'.format(seg, acc, num))
+    with open('seg_{}.csv'.format(seg), 'w') as f:
+        writer = csv.DictWriter(f, ['acc', 'name', 'catagory', 'pre', 'prob', 'vector'])
+        writer.writeheader()
+        writer.writerows(datas)
 
 def train(trainList, eval=None, is_eval=False):
     inceptionv4 = Inceptionv4()
@@ -1135,43 +1141,19 @@ def initializingModel(tfrecord):
         saver.save(sess, 'model/model.ckpt', 0)
         # print(global_step)
 
+@ckptModelDecorator
 def freezingModel():
-    inceptionv4 = Inceptionv4()
+    graph_def = sess.graph.as_graph_def()
+    output_graph_def = graph_util.convert_variables_to_constants(
+        sess,
+        graph_def,
+        ['InceptionV4/Logits/Predictions']  # We split on comma for convenience
+    )
 
-    inputs = tf.placeholder(tf.float32, shape=(None, 299, 299, 3))
-
-
-    logits, end_points = inceptionv4.buildNet(inputs,
-                                              num_classes=(FLAGS.num_classes - FLAGS.labels_offset),
-                                              weight_decay=FLAGS.weight_decay,
-                                              is_training=False)
-
-
-    with tf.Session() as sess:
-
-        saver = tf.train.Saver()
-        ckpt = tf.train.get_checkpoint_state(FLAGS.model_dir)
-        if ckpt and ckpt.model_checkpoint_path:
-            saver.restore(sess, ckpt.model_checkpoint_path)
-            logger.info("Model restored...")
-
-        itr = 0
-        train_writer = tf.summary.FileWriter(FLAGS.model_dir, sess.graph)
-
-
-
-
-        graph_def = sess.graph.as_graph_def()
-        output_graph_def = graph_util.convert_variables_to_constants(
-            sess,
-            graph_def,
-            ['InceptionV4/Logits/Predictions']  # We split on comma for convenience
-        )
-
-        # Finally we serialize and dump the output graph to the filesystem
-        with tf.gfile.GFile('frozen.pb', "wb") as f:
-            f.write(output_graph_def.SerializeToString())
-        print("%d ops in the final graph." % len(output_graph_def.node))
+    # Finally we serialize and dump the output graph to the filesystem
+    with tf.gfile.GFile('frozen.pb', "wb") as f:
+        f.write(output_graph_def.SerializeToString())
+    print("%d ops in the final graph." % len(output_graph_def.node))
 
 def printGraph(pbName):
 
