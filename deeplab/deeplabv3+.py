@@ -3,7 +3,10 @@ from tensorflow.contrib.slim.nets import resnet_v2
 from tensorflow.contrib import layers as layers_lib
 from tensorflow.contrib.framework.python.ops import arg_scope
 from tensorflow.contrib.layers.python.layers import layers
+from tensorflow.python.framework import graph_util
+import tensorflow.contrib.slim as slim
 
+import cv2
 import numpy as np
 from PIL import Image
 import argparse
@@ -14,50 +17,84 @@ logger = logging.getLogger(__name__)
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument('--model_dir', type=str, default='./deepLab',
+###################
+# general parser  #
+###################
+
+parser.add_argument('--num_classes', type=int, default=21,
+                    help='Number of image classes.')
+
+parser.add_argument('--buffer_size', type=int, default=30,
+                    help='Number of buffer size.')
+
+parser.add_argument('--image_size', type=int, default=513,
+                    help='Size of image width and height.')
+
+parser.add_argument('--min_scale', type=float, default=0.5,
+                    help='Minimum scale in image augment.')
+
+parser.add_argument('--max_scale', type=float, default=2.0,
+                    help='Maximum scale in image augment.')
+
+parser.add_argument('--ignore_label', type=int, default=255,
+                    help='Value of ignored label.')
+
+parser.add_argument('--num_images', type=int, default=2097,
+                    help='Number of training images.')
+
+#####################
+# directory parser  #
+#####################
+
+parser.add_argument('--model_dir', type=str, default='./model',
                     help='Base directory for the model.')
+
+parser.add_argument('--data_dir', type=str, default='./dataset/',
+                    help='Path of the directory containing the data tfrecord.')
 
 parser.add_argument('--clean_model_dir', action='store_true',
                     help='Whether to clean up the model directory if present.')
 
-parser.add_argument('--train_epochs', type=int, default=52,
-                    help='Number of training epochs: '
-                         'For 30K iteration with batch size 6, train_epoch = 17.01 (= 30K * 6 / 10,582). '
-                         'For 30K iteration with batch size 8, train_epoch = 22.68 (= 30K * 8 / 10,582). '
-                         'For 30K iteration with batch size 10, train_epoch = 25.52 (= 30K * 10 / 10,582). '
-                         'For 30K iteration with batch size 11, train_epoch = 31.19 (= 30K * 11 / 10,582). '
-                         'For 30K iteration with batch size 15, train_epoch = 42.53 (= 30K * 15 / 10,582). '
-                         'For 30K iteration with batch size 16, train_epoch = 45.36 (= 30K * 16 / 10,582).')
+parser.add_argument('--pre_trained_model', type=str, default='./ini_checkpoints/resnet_v2_101/resnet_v2_101.ckpt',
+                    help='Path of the pre-trained model checkpoint.')
 
-parser.add_argument('--epochs_per_eval', type=int, default=1,
-                    help='The number of training epochs to run between evaluations.')
-
-parser.add_argument('--tensorboard_images_max_outputs', type=int, default=6,
-                    help='Max number of batch elements to generate for Tensorboard.')
-
-parser.add_argument('--batch_size', type=int, default=2,
-                    help='Number of examples per batch.')
-
-parser.add_argument('--learning_rate_policy', type=str, default='poly',
-                    choices=['poly', 'piecewise'],
-                    help='Learning rate policy to optimize loss.')
-
-parser.add_argument('--max_iter', type=int, default=30000,
-                    help='Number of maximum iteration used for "poly" learning rate policy.')
-
-parser.add_argument('--data_dir', type=str, default='./dataset/',
-                    help='Path to the directory containing the PASCAL VOC data tf record.')
+#################
+# model parser  #
+#################
 
 parser.add_argument('--base_architecture', type=str, default='resnet_v2_101',
                     choices=['resnet_v2_50', 'resnet_v2_101'],
                     help='The architecture of base Resnet building block.')
 
-parser.add_argument('--pre_trained_model', type=str, default='./ini_checkpoints/resnet_v2_101/resnet_v2_101.ckpt',
-                    help='Path to the pre-trained model checkpoint.')
-
 parser.add_argument('--output_stride', type=int, default=16,
                     choices=[8, 16],
                     help='Output stride for DeepLab v3. Currently 8 or 16 is supported.')
+
+######################
+# Optimization parser#
+######################
+
+parser.add_argument('--batch_size', type=int, default=2,
+                    help='Number of examples per batch.')
+
+parser.add_argument('--train_epochs', type=int, default=52,
+                    help='Number of training epochs.')
+
+parser.add_argument('--batch_norm_decay', type=float, default=0.9997,
+                    help='The weight decay to use for batch normalization.')
+
+parser.add_argument('--learning_rate_policy', type=str, default='poly',
+                    choices=['poly', 'piecewise'],
+                    help='Learning rate policy to optimize loss.')
+
+parser.add_argument('--power', type=float, default=0.9,
+                    help='Learning rate power.')
+
+parser.add_argument('--momentum', type=float, default=0.9,
+                    help='Learning rate momentum.')
+
+parser.add_argument('--max_iter', type=int, default=30000,
+                    help='Number of maximum iteration used for "poly" learning rate policy.')
 
 parser.add_argument('--freeze_batch_norm', action='store_true',
                     help='Freeze batch normalization parameters during the training.')
@@ -74,11 +111,6 @@ parser.add_argument('--initial_global_step', type=int, default=0,
 parser.add_argument('--weight_decay', type=float, default=2e-4,
                     help='The weight decay to use for regularizing the model.')
 
-parser.add_argument('--debug', action='store_true',
-                    help='Whether to use debugger to track down bad values during training.')
-
-_BATCH_NORM_DECAY = 0.9997
-_WEIGHT_DECAY = 5e-4
 
 _R_MEAN = 123.68
 _G_MEAN = 116.78
@@ -206,9 +238,6 @@ class DeepLabv3Plus:
             #     'channels_first' if tf.test.is_built_with_cuda() else 'channels_last')
             pass
 
-        if batch_norm_decay is None:
-            batch_norm_decay = _BATCH_NORM_DECAY
-
         if base_architecture not in ['resnet_v2_50', 'resnet_v2_101']:
             raise ValueError("'base_architrecture' must be either 'resnet_v2_50' or 'resnet_v2_50'.")
 
@@ -279,7 +308,7 @@ class DeepLabv3Plus:
 
         logits = network(features, is_train)
 
-        pred_classes = tf.expand_dims(tf.argmax(logits, axis=3, output_type=tf.int32), axis=3)
+        pred_classes = tf.expand_dims(tf.argmax(logits, axis=3, output_type=tf.int32), axis=3, name='pred_classes')
 
         pred_decoded_labels = tf.py_func(decode_labels,
                                          [pred_classes, params['batch_size'], params['num_classes']],
@@ -328,7 +357,7 @@ class DeepLabv3Plus:
 
         # Add weight decay to the loss.
         with tf.variable_scope("total_loss"):
-            loss = cross_entropy + params.get('weight_decay', _WEIGHT_DECAY) * tf.add_n(
+            loss = cross_entropy + params['weight_decay'] * tf.add_n(
                 [tf.nn.l2_loss(v) for v in train_var_list])
         # loss = tf.losses.get_total_loss()  # obtain the regularization losses as well
 
@@ -367,59 +396,40 @@ class DeepLabv3Plus:
 
         return train_op
 
-if __name__ == '__main__':
-    _NUM_CLASSES = 21
-    _HEIGHT = 513
-    _WIDTH = 513
-    _DEPTH = 3
-    _MIN_SCALE = 0.5
-    _MAX_SCALE = 2.0
-    _IGNORE_LABEL = 255
-
-    _POWER = 0.9
-    _MOMENTUM = 0.9
-
-    _BATCH_NORM_DECAY = 0.9997
-
-    _NUM_IMAGES = {
-        'train': 2097,
-        'validation': 29,
-    }
-
+def train(record_list):
     FLAGS, unparsed = parser.parse_known_args()
 
     net = DeepLabv3Plus()
-    inputs, labels = input_fn(True, ['dataset/train.record'], params={
-        'num_epochs': 1,
+    inputs, labels = input_fn(True, record_list, params={
+        'num_epochs': FLAGS.train_epochs,
         'batch_size': FLAGS.batch_size,
-        'buffer_size': 30,
-        'min_scale': 0.5,
-        'max_scale': 2.0,
-        'height': 513,
-        'width': 513,
-        'ignore_label': 255,
+        'buffer_size': FLAGS.buffer_size,
+        'min_scale': FLAGS.min_scale,
+        'max_scale': FLAGS.max_scale,
+        'height': FLAGS.image_size,
+        'width': FLAGS.image_size,
+        'ignore_label': FLAGS.ignore_label,
     })
     # inputs = tf.placeholder(tf.float32, shape=(None, None, None, 3))
     # labels = tf.placeholder(tf.int32, shape=(None, None, None, 1))
 
     tainOp = net.trainAndInference(inputs, labels, params={
-          'output_stride': FLAGS.output_stride,
-          'batch_size': FLAGS.batch_size,
-          'base_architecture': FLAGS.base_architecture,
-          'pre_trained_model': FLAGS.pre_trained_model,
-          'batch_norm_decay': _BATCH_NORM_DECAY,
-          'num_classes': _NUM_CLASSES,
-          'tensorboard_images_max_outputs': FLAGS.tensorboard_images_max_outputs,
-          'weight_decay': FLAGS.weight_decay,
-          'learning_rate_policy': FLAGS.learning_rate_policy,
-          'num_train': _NUM_IMAGES['train'],
-          'initial_learning_rate': FLAGS.initial_learning_rate,
-          'max_iter': FLAGS.max_iter,
-          'end_learning_rate': FLAGS.end_learning_rate,
-          'power': _POWER,
-          'momentum': _MOMENTUM,
-          'freeze_batch_norm': FLAGS.freeze_batch_norm,
-          'initial_global_step': FLAGS.initial_global_step
+        'output_stride': FLAGS.output_stride,
+        'batch_size': FLAGS.batch_size,
+        'base_architecture': FLAGS.base_architecture,
+        'pre_trained_model': FLAGS.pre_trained_model,
+        'batch_norm_decay': FLAGS.batch_norm_decay,
+        'num_classes': FLAGS.num_classes,
+        'weight_decay': FLAGS.weight_decay,
+        'learning_rate_policy': FLAGS.learning_rate_policy,
+        'num_train': FLAGS.num_images,
+        'initial_learning_rate': FLAGS.initial_learning_rate,
+        'max_iter': FLAGS.max_iter,
+        'end_learning_rate': FLAGS.end_learning_rate,
+        'power': FLAGS.power,
+        'momentum': FLAGS.momentum,
+        'freeze_batch_norm': FLAGS.freeze_batch_norm,
+        'initial_global_step': FLAGS.initial_global_step
     })
 
     merge_summary = tf.summary.merge_all()
@@ -456,7 +466,134 @@ if __name__ == '__main__':
                 continue
 
             if (itr % 100 == 0):
-                saver.save(sess, FLAGS.model_dir+'/model.ckpt', itr)
+                saver.save(sess, FLAGS.model_dir + '/model.ckpt', itr)
+
+def pbDecorator(func):
+    def wrapper():
+        global sess
+        global net
+        global image_tensor
+        global pred_tensor
+        global FLAGS
+
+        net = tf.Graph()
+        with net.as_default():
+            graphDef = tf.GraphDef()
+
+            with tf.gfile.GFile('frozen.pb', 'rb') as fid:
+                serializedGraph = fid.read()
+                graphDef.ParseFromString(serializedGraph)
+                tf.import_graph_def(graphDef, name='')
+
+        config = tf.ConfigProto()
+        config.intra_op_parallelism_threads = 44
+        config.inter_op_parallelism_threads = 44
+        res = []
+
+        with tf.Session(graph=net, config=config) as sess:
+            # get tensor
+            image_tensor = net.get_tensor_by_name('inputs:0')
+            pred_tensor = net.get_tensor_by_name('pred_classes:0')
+
+            func()
+
+    return wrapper
+
+def ckptDecorator(func):
+    def wrapper(is_train=False):
+        global sess
+        global net
+        global image_tensor
+        global pred_tensor
+        global FLAGS
+
+        image_tensor = tf.placeholder(tf.float32, shape=(None, None, None, 3), name='inputs')
+        labels = tf.placeholder(tf.int32, shape=(None, None, None, 1), name='labels')
+
+        FLAGS, unparsed = parser.parse_known_args()
+
+        net = DeepLabv3Plus()
+        pred_tensor = net.trainAndInference(image_tensor, labels, is_train=is_train, params={
+            'output_stride': FLAGS.output_stride,
+            'batch_size': FLAGS.batch_size,
+            'base_architecture': FLAGS.base_architecture,
+            'pre_trained_model': FLAGS.pre_trained_model,
+            'batch_norm_decay': FLAGS.batch_norm_decay,
+            'num_classes': FLAGS.num_classes,
+            'weight_decay': FLAGS.weight_decay,
+            'learning_rate_policy': FLAGS.learning_rate_policy,
+            'num_train': FLAGS.num_images,
+            'initial_learning_rate': FLAGS.initial_learning_rate,
+            'max_iter': FLAGS.max_iter,
+            'end_learning_rate': FLAGS.end_learning_rate,
+            'power': FLAGS.power,
+            'momentum': FLAGS.momentum,
+            'freeze_batch_norm': FLAGS.freeze_batch_norm,
+            'initial_global_step': FLAGS.initial_global_step
+        })
+
+        with tf.Session() as sess:
+            saver = tf.train.Saver()
+            ckpt = tf.train.get_checkpoint_state(FLAGS.model_dir)
+            if ckpt and ckpt.model_checkpoint_path:
+                saver.restore(sess, ckpt.model_checkpoint_path)
+                logger.info("Model restored...")
+
+            func()
+
+    return wrapper
+
+@ckptDecorator
+def initModel():
+    sess.run(tf.global_variables_initializer())
+
+    exclude = [FLAGS.base_architecture + '/logits', 'global_step']
+    variables_to_restore = tf.contrib.slim.get_variables_to_restore(exclude=exclude)
+
+    init = slim.assign_from_checkpoint_fn(FLAGS.model_dir + '/model.ckpt', variables_to_restore,
+                                          ignore_missing_vars=True)
+    init(sess)
+
+    saver = tf.train.Saver()
+    saver.save(sess, FLAGS.model_dir + '/model.ckpt', 0)
+
+@ckptDecorator
+def freezing():
+    graph_def = sess.graph.as_graph_def()
+    output_graph_def = graph_util.convert_variables_to_constants(
+        sess,
+        graph_def,
+        ['pred_classes']
+    )
+
+    # Finally we serialize and dump the output graph to the filesystem
+    with tf.gfile.GFile('frozen.pb', "wb") as f:
+        f.write(output_graph_def.SerializeToString())
+    print("%d ops in the final graph." % len(output_graph_def.node))
+
+@pbDecorator
+def evaluating():
+    image = Image.open('1.png')
+    # image = resizeImageKeepScale(image, 513, 513)
+    image = image.resize((513, 513))
+    imgArray = np.array(image)
+    (R, G, B) = cv2.split(imgArray)
+    R = R - _R_MEAN
+    G = G - _G_MEAN
+    B = B - _B_MEAN
+    imgArray = cv2.merge([R, G, B])
+    imageInput = np.expand_dims(imgArray, axis=0)
+
+    mask = sess.run(pred_tensor, feed_dict={image_tensor: imageInput})
+
+    res = decode_labels(mask)
+    cv2.imshow('', res[0])
+    cv2.waitKey()
+
+if __name__ == '__main__':
+    # initModel(is_train=True)
+    # train(['dataset/train.record'])
+    evaluating()
 
 
 
