@@ -241,11 +241,11 @@ def train(trainList, stage='landmark', init=False):
         'height': FLAGS.image_size,
         'width': FLAGS.image_size,
     })
-    heatmaps = tf.image.resize_images(heatmaps, [28, 28],
-                                      method=tf.image.ResizeMethod.BILINEAR)
+    # heatmaps = tf.image.resize_images(heatmaps, [28, 28],
+    #                                   method=tf.image.ResizeMethod.BILINEAR)
 
     # build net
-    ground_heatmaps = tf.placeholder(tf.float32, shape=(None, 28, 28, 9))
+    ground_heatmaps = tf.placeholder(tf.float32, shape=(None, FLAGS.image_size, FLAGS.image_size, 9))
     images_input = tf.placeholder(tf.float32, shape=(None, FLAGS.image_size, FLAGS.image_size, 3))
     label_input = tf.placeholder(tf.int32, shape=(None, FLAGS.num_classes))
     net = afg_net.buildNet(images_input, FLAGS.num_classes, weight_decay=FLAGS.weight_decay,
@@ -260,6 +260,8 @@ def train(trainList, stage='landmark', init=False):
     # loss definition
     # slim.losses.add_loss(pose_loss)
     if stage.lower() == 'landmark':
+        net = tf.image.resize_images(net, [FLAGS.image_size, FLAGS.image_size],
+                                     method=tf.image.ResizeMethod.BILINEAR)
         slim.losses.mean_squared_error(net, ground_heatmaps)
     else:
         slim.losses.sigmoid_cross_entropy(net, label, label_smoothing=0.0000001)

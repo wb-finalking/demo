@@ -29,7 +29,7 @@ def testTfExample():
             writer.write(tf_example.SerializeToString())
 
 def testTfParser():
-    dataset = tf.data.Dataset.from_tensor_slices(['test.tfrecord'])
+    dataset = tf.data.Dataset.from_tensor_slices(['clothing.record'])
     dataset = dataset.flat_map(tf.data.TFRecordDataset)
 
     dataset = dataset.map(parse_record)
@@ -38,16 +38,48 @@ def testTfParser():
     dataset = dataset.batch(1)
 
     iterator = dataset.make_one_shot_iterator()
-    images, id, heatmaps = iterator.get_next()
+    images, id, heatmaps, landmarks = iterator.get_next()
 
     # heatmaps = tf.transpose(heatmaps, (3,0,1,2))
     with tf.Session() as sess:
-        heatmaps_r = sess.run(heatmaps)
+        heatmaps_r, images_res = sess.run([heatmaps, images])
 
     print(heatmaps_r.shape)
     print(heatmaps_r[heatmaps_r>0])
-    g = heatmaps_r[0, :, :, 0]*255
+
+    image = Image.fromarray(np.uint8(np.array(images_res[0])))
+    image.show('')
+
+    g = np.max(heatmaps_r[0, :, :, :], axis=2)
     cv2.imshow('', cv2.merge([g,g,g]))
+    cv2.waitKey()
+
+def testInput():
+    images, label, heatmaps, landmarks = input_fn(True, ['clothing.record'], params={
+        'num_epochs': 1,
+        'num_classes': 22,
+        'batch_size': 5,
+        'buffer_size': 5,
+        'min_scale': 0.8,
+        'max_scale': 1.2,
+        'height': 224,
+        'width': 224,
+    })
+    heatmaps = tf.image.resize_images(heatmaps, [28, 28],
+                                      method=tf.image.ResizeMethod.BILINEAR)
+
+    with tf.Session() as sess:
+        heatmaps_r, images_res = sess.run([heatmaps, images])
+
+    print(heatmaps_r.shape)
+    print(heatmaps_r[0,:,:,0])
+
+    image = Image.fromarray(np.uint8(np.array(images_res[0])))
+    image.show('')
+
+    g = np.max(heatmaps_r[0, :, :, :], axis=2)
+    g = cv2.resize(heatmaps_r[0,:,:,0], (224, 224))
+    cv2.imshow('', g)
     cv2.waitKey()
 
 def testAFG_Net():
@@ -63,11 +95,11 @@ def testAFG_Net():
 
     print(tf.trainable_variables())
 
-
 if __name__ == '__main__':
     # testTfExample()
     # testTfParser()
-    testAFG_Net()
+    # testAFG_Net()
+    testInput()
 
     # img = convertLandmark2Heatmap([[71, 71]], 600, 600)
     # print(img.shape)

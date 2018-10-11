@@ -90,17 +90,22 @@ def modelDecorator(func):
 
 @modelDecorator
 def testImage():
-    for i in range(2, 10):
-        filenames = '/home/lingdi/project/fabricImages/fabric/' + str(i) + '.jpg'
+    for i in range(19, 32):
+        filenames = '/home/lingdi/project/test/' + str(i) + '.jpg'
         image = Image.open(filenames)
         image = resizeImage(image)
+        image.show('')
 
         image_array = np.array(image)
         image_input = np.expand_dims(image_array, axis=0)
 
         pred = sess.run(net, feed_dict={images_input: image_input})
 
-        print(pred)
+        heatmaps = pred[0, :, :, :8]
+        landmark = cv2.resize(np.max(heatmaps, axis=2), (224, 224))
+        print(np.max(pred[0,:,:,0]))
+        cv2.imshow('', landmark)
+        cv2.waitKey()
 
 
 if __name__ == '__main__':

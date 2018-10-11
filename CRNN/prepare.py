@@ -475,7 +475,7 @@ def preprocess_image(image, labelID, heatmaps, landmarks, is_training, params):
 
     label = slim.one_hot_encoding(labelID, params['num_classes'])
 
-    heatmaps = heatmaps / 255
+    heatmaps = heatmaps / 255.0
     background = 1 - tf.reduce_max(heatmaps, axis=2)
     background = tf.expand_dims(background, axis=2)
     heatmaps = tf.concat([heatmaps, background], axis=2)
