@@ -574,7 +574,7 @@ def freezing():
 @pbDecorator
 def evaluating():
     image = Image.open('C:/project/test/11.jpg')
-    image = resizeImage(image, 513, 513)
+    # image = resizeImage(image, 513, 513)
     # image.show('')
     imgArray = np.array(image)
     (R, G, B) = cv2.split(imgArray)
@@ -598,10 +598,91 @@ def evaluating():
     cv2.imshow('', res[0])
     cv2.waitKey()
 
+class PersonSegmentation:
+    def __init__(self):
+        self.inputTensor = 'inputs'
+        self.outputTensor = 'pred_classes'
+        self.inputSize = 513
+
+        self.modelNet = tf.Graph()
+        with self.modelNet.as_default():
+            odGraphDef = tf.GraphDef()
+
+            with tf.gfile.GFile('frozen.pb', 'rb') as fid:
+                serializedGraph = fid.read()
+                odGraphDef.ParseFromString(serializedGraph)
+                tf.import_graph_def(odGraphDef, name='')
+
+    def segment(self, image):
+        # input image preprocess
+        org_width, org_height = image.size[0], image.size[1]
+        imExpanded, new_width, new_height = self.imageProcess(image)
+
+        config = tf.ConfigProto()
+        config.intra_op_parallelism_threads = 44
+        config.inter_op_parallelism_threads = 44
+        with tf.Session(graph=self.modelNet, config=config) as sess:
+            # get tensor
+            image_tensor = self.modelNet.get_tensor_by_name(self.inputTensor + ':0')
+            pred_tensor = self.modelNet.get_tensor_by_name(self.outputTensor + ':0')
+
+            mask = sess.run(pred_tensor, feed_dict={image_tensor: imExpanded})
+
+        mask = self.maskRevise(mask[0,:,:,0], new_width, new_height, org_width, org_height )
+        mask = np.expand_dims(mask, axis=2)
+        mask[mask != 15] = 0
+        mask[mask == 15] = 1
+        mask = np.tile(mask, (1, 1, 3))
+
+        imgArray = np.array(image) * mask
+        image = Image.fromarray(np.uint8(imgArray))
+        return image
+
+    def imageProcess(self, image):
+        rgbImage = image.convert('RGB')
+        rgbImage, new_width, new_height =\
+            self.resizeImageKeepScale(rgbImage, self.inputSize, self.inputSize)
+        # rgbImage = cv2.cvtColor(np.array(rgbImage), cv2.COLOR_RGB2BGR)
+        rgbImage = np.array(rgbImage)
+        (R, G, B) = cv2.split(rgbImage)
+        R = R - 123.68
+        G = G - 116.779
+        B = B - 103.939
+        rgbImage = cv2.merge([R, G, B])
+        imExpanded = np.expand_dims(rgbImage, axis=0)
+
+        return imExpanded, new_width, new_height
+
+    def maskRevise(self, mask, new_width, new_height, org_width, org_height):
+        mask = mask[(self.inputSize-new_height)//2 : (self.inputSize-new_height)//2+new_height,
+               (self.inputSize-new_width)//2 : (self.inputSize-new_width)//2+new_width]
+        mask = cv2.resize(mask, (org_width, org_height), interpolation=cv2.INTER_NEAREST)
+        return mask
+
+    def resizeImageKeepScale(self, im, targetW=300, targetH=300):
+        im = Image.fromarray(np.uint8(np.array(im)))
+        w = im.size[0]
+        h = im.size[1]
+
+        ratio = min(float(targetW) / w, float(targetH) / h)
+        w = int(w * ratio)
+        h = int(h * ratio)
+        im = im.resize((w, h), Image.ANTIALIAS)
+
+        new_im = Image.new("RGB", (targetW, targetH))
+        new_im.paste(im, ((targetW - w) // 2,
+                          (targetH - h) // 2))
+        return new_im, w, h
+
 if __name__ == '__main__':
     # initModel(is_train=True)
     # train(['dataset/train.record'])
-    evaluating()
+    # evaluating()
+
+    ps = PersonSegmentation()
+    image = Image.open('C:/project/test/11.jpg')
+    image = ps.segment(image)
+    image.show('')
 
 
 
