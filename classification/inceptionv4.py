@@ -1128,17 +1128,21 @@ def initializingModel(tfrecord):
         with tf.control_dependencies(update_ops):
             trainOp = optimizer.minimize(loss, global_step=global_step)
 
-        # sess.run(tf.global_variables_initializer())
         # tf.local_variables_initializer().run()
         sess.run(tf.global_variables_initializer())
 
-        saver = tf.train.Saver(variables_to_restore)
+        # finetune
+        # saver = tf.train.Saver(variables_to_restore)
         ckpt = tf.train.get_checkpoint_state(FLAGS.model_dir)
         if ckpt and ckpt.model_checkpoint_path:
-            saver.restore(sess, ckpt.model_checkpoint_path)
+            # saver.restore(sess, ckpt.model_checkpoint_path)
+            init = slim.assign_from_checkpoint_fn(ckpt.model_checkpoint_path, variables_to_restore,
+                                                  ignore_missing_vars=True)
+            init(sess)
             logger.info("Model restored...")
+
         saver = tf.train.Saver()
-        saver.save(sess, 'model/model.ckpt', 0)
+        saver.save(sess, FLAGS.model_dir+'/model.ckpt', 0)
         # print(global_step)
 
 @ckptModelDecorator

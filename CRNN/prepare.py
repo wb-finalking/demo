@@ -518,6 +518,72 @@ def input_fn(is_training, recordFilename, params):
     return images, label, heatmaps, landmarks
 
 
+"""
+    image process
+"""
+
+def resize(im, targetW=300, targetH=300):
+    # targetW = 300
+    # targetH = 300
+
+    ratio = 1
+
+    im = Image.fromarray(np.uint8(np.array(im)))
+    w = im.size[0]
+    h = im.size[1]
+
+    if w < targetW or h < targetH:
+        pass
+    else:
+        ratio = min(float(targetW) / w, float(targetH) / h)
+        w = int(w * ratio)
+        h = int(h * ratio)
+        im = im.resize((w, h), Image.ANTIALIAS)
+
+    new_im = Image.new("RGB", (targetW, targetH))
+    new_im.paste(im, ((targetW - w) // 2,
+                      (targetH - h) // 2))
+    return new_im
+
+def scaleAndCrop(im, targetW=300, targetH=300):
+    ratio = 1
+
+    im = Image.fromarray(np.uint8(np.array(im)))
+    w = im.size[0]
+    h = im.size[1]
+
+    ratio = max(float(targetW) / w, float(targetH) / h)
+    w = int(w * ratio)
+    h = int(h * ratio)
+    im = im.resize((w, h), Image.ANTIALIAS)
+
+    cood = [(w - targetW) // 2, (h - targetH) // 2,
+            targetW + (w - targetW) // 2, targetH + (h - targetH) // 2]
+
+    return im.crop(cood)
+
+def resizeImage(im, targetW=300, targetH=300):
+    im = Image.fromarray(np.uint8(np.array(im)))
+    w = im.size[0]
+    h = im.size[1]
+
+    if w < targetW and h < targetH:
+        pass
+    else:
+        ratio = min(float(targetW) / w, float(targetH) / h)
+        w = int(w * ratio)
+        h = int(h * ratio)
+        im = im.resize((w, h), Image.ANTIALIAS)
+
+    new_im = Image.new("RGB", (targetW, targetH))
+    new_im.paste(im, ((targetW - w) // 2,
+                      (targetH - h) // 2))
+    return new_im
+
+"""
+    test tfrecorde
+"""
+
 def testTfrecord(trainList):
 
     images, labelID, landmarks = input_fn(True, trainList, params={
@@ -549,49 +615,6 @@ def testTfrecord(trainList):
             im.show('')
             # cv2.imshow('',img)
             # cv2.waitKey(0)
-
-
-def resize(im, targetW=300, targetH=300):
-    # targetW = 300
-    # targetH = 300
-
-    ratio = 1
-
-    im = Image.fromarray(np.uint8(np.array(im)))
-    w = im.size[0]
-    h = im.size[1]
-
-    if w < targetW or h < targetH:
-        pass
-    else:
-        ratio = min(float(targetW) / w, float(targetH) / h)
-        w = int(w * ratio)
-        h = int(h * ratio)
-        im = im.resize((w, h), Image.ANTIALIAS)
-
-    new_im = Image.new("RGB", (targetW, targetH))
-    new_im.paste(im, ((targetW - w) // 2,
-                      (targetH - h) // 2))
-    return new_im
-
-
-def scaleAndCrop(im, targetW=300, targetH=300):
-    ratio = 1
-
-    im = Image.fromarray(np.uint8(np.array(im)))
-    w = im.size[0]
-    h = im.size[1]
-
-    ratio = max(float(targetW) / w, float(targetH) / h)
-    w = int(w * ratio)
-    h = int(h * ratio)
-    im = im.resize((w, h), Image.ANTIALIAS)
-
-    cood = [(w - targetW) // 2, (h - targetH) // 2,
-            targetW + (w - targetW) // 2, targetH + (h - targetH) // 2]
-
-    return im.crop(cood)
-
 
 if __name__ == '__main__':
     # createTFRecord('clothing.record')

@@ -68,6 +68,24 @@ def prepareLabel(label_path, txtName, output_path):
             im = Image.fromarray(im)
             im.save(output_path+'/'+line+'.png')
 
+def resizeImage(im, targetW=513, targetH=513):
+    im = Image.fromarray(np.uint8(np.array(im)))
+    w = im.size[0]
+    h = im.size[1]
+
+    # if w < targetW and h < targetH:
+    #     pass
+    # else:
+    ratio = min(float(targetW) / w, float(targetH) / h)
+    w = int(w * ratio)
+    h = int(h * ratio)
+    im = im.resize((w, h), Image.ANTIALIAS)
+
+    new_im = Image.new("RGB", (targetW, targetH))
+    new_im.paste(im, ((targetW - w) // 2,
+                      (targetH - h) // 2))
+    return new_im
+
 """
     create tfrecorde contain:
     int64_feature, int64_list_feature, bytes_feature, bytes_list_feature, float_list_feature

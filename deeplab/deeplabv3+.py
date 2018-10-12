@@ -573,9 +573,9 @@ def freezing():
 
 @pbDecorator
 def evaluating():
-    image = Image.open('1.png')
-    # image = resizeImageKeepScale(image, 513, 513)
-    image = image.resize((513, 513))
+    image = Image.open('C:/project/test/11.jpg')
+    image = resizeImage(image, 513, 513)
+    # image.show('')
     imgArray = np.array(image)
     (R, G, B) = cv2.split(imgArray)
     R = R - _R_MEAN
@@ -587,6 +587,14 @@ def evaluating():
     mask = sess.run(pred_tensor, feed_dict={image_tensor: imageInput})
 
     res = decode_labels(mask)
+    mask[mask != 15] = 0
+    mask[mask == 15] = 1
+    mask = np.tile(mask[0], (1, 1, 3))
+
+    imgArray = np.array(image) * mask
+    image = Image.fromarray(np.uint8(imgArray))
+    image.show('')
+
     cv2.imshow('', res[0])
     cv2.waitKey()
 
@@ -594,6 +602,7 @@ if __name__ == '__main__':
     # initModel(is_train=True)
     # train(['dataset/train.record'])
     evaluating()
+
 
 
 

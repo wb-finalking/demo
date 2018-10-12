@@ -51,20 +51,6 @@ tf.app.flags.DEFINE_float(
 
 FLAGS = tf.app.flags.FLAGS
 
-def resizeImage(image, targetW=224, targetH=224):
-    w = image.size[0]
-    h = image.size[1]
-
-    ratio = max(float(targetW) / w, float(targetH) / h)
-    w = int(w * ratio)
-    h = int(h * ratio)
-    im = image.resize((w, h), Image.ANTIALIAS)
-
-    cood = [(w - targetW) // 2, (h - targetH) // 2,
-            targetW + (w - targetW) // 2, targetH + (h - targetH) // 2]
-
-    return im.crop(cood)
-
 def modelDecorator(func):
     def wrapper():
         global sess
@@ -93,7 +79,7 @@ def testImage():
     for i in range(19, 32):
         filenames = '/home/lingdi/project/test/' + str(i) + '.jpg'
         image = Image.open(filenames)
-        image = resizeImage(image)
+        image = resizeImage(image, targetW=224, targetH=224)
         image.show('')
 
         image_array = np.array(image)
