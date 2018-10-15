@@ -46,6 +46,10 @@ tf.app.flags.DEFINE_string(
     'model_dir', 'model',
     'Directory where checkpoints and event logs are written to.')
 
+tf.app.flags.DEFINE_string('train_stage', 'landmark', 'The train stage')
+
+tf.app.flags.DEFINE_bool('init', False, 'Whether to initialize or train.')
+
 ######################
 # Optimization Flags #
 ######################
@@ -370,4 +374,4 @@ def freeze():
 
 
 if __name__ == '__main__':
-    train(['clothing.record'], stage='landmark', init=False)
+    train(['clothing.record'], stage=FLAGS.train_stage, init=FLAGS.init)
