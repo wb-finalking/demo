@@ -76,7 +76,7 @@ def modelDecorator(func):
 
 @modelDecorator
 def testImage():
-    for i in range(19, 32):
+    for i in range(6, 32):
         filenames = '/home/lingdi/project/test/' + str(i) + '.jpg'
         image = Image.open(filenames)
         image = resizeImage(image, targetW=224, targetH=224)
@@ -93,6 +93,38 @@ def testImage():
         cv2.imshow('', landmark)
         cv2.waitKey()
 
+@modelDecorator
+def testTrainData():
+    images, label, heatmaps, landmarks = input_fn(True, ['clothing.record'], params={
+        'num_epochs': FLAGS.num_epochs,
+        'num_classes': FLAGS.num_classes,
+        'batch_size': FLAGS.batch_size,
+        'buffer_size': FLAGS.train_images_num,
+        'min_scale': 0.8,
+        'max_scale': 1.2,
+        'height': FLAGS.image_size,
+        'width': FLAGS.image_size,
+    })
+
+    for i in range(1, 32):
+        images_inputs, heatmaps_inputs = sess.run([images, heatmaps])
+
+        # tmp_tensor = tf.get_default_graph().get_tensor_by_name('BCRNN/ConstructHeatMaps:0')
+        pred = tf.image.resize_images(net, [FLAGS.image_size, FLAGS.image_size],
+                                      method=tf.image.ResizeMethod.BILINEAR)
+        pred_res = sess.run(pred, feed_dict={images_input: images_inputs})
+
+        heatmaps_res = np.max(pred_res[0, :, :, :8], axis=2)
+        loss_res = np.mean((heatmaps_inputs-pred_res)**2)
+        # landmark = cv2.resize(np.max(heatmaps_res, axis=2), (224, 224))
+        print(np.max(heatmaps_res), loss_res)
+        print(heatmaps_res)
+        cv2.imshow('0', images_inputs[0]/255)
+        cv2.imshow('1', heatmaps_res)
+        cv2.imshow('2', np.max(heatmaps_inputs[0, :, :, :8], axis=2))
+        cv2.waitKey()
+
 
 if __name__ == '__main__':
-    testImage()
+    # testImage()
+    testTrainData()

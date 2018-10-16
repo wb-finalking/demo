@@ -375,12 +375,15 @@ class AFGNet(object):
 
         with tf.variable_scope('BCRNN'):
             with slim.arg_scope([slim.conv2d],
-                                activation_fn=tf.nn.sigmoid,
+                                activation_fn=None,
                                 weights_regularizer=slim.l2_regularizer(weight_decay),
                                 padding='SAME'):
                 # 8 landmarks and 1 background
                 heat_maps = slim.conv2d(net, 9, [1, 1], scope='ConstructHeatMaps')
                 heat_maps = tf.sigmoid(heat_maps, name='sigmoid')
+
+            if stage.lower() == 'landmark':
+                return heat_maps
 
             # heat-maps l-collar l-sleeve l-waistline l-hem r-...
             heat_maps = tf.transpose(heat_maps, (3, 0, 1, 2))
@@ -425,8 +428,8 @@ class AFGNet(object):
             # landmarks predictions
             output = tf.nn.softmax(refined_heatmaps, name='RefinedHeatMaps')
 
-        if stage.lower() == 'landmark':
-            return output
+        # if stage.lower() == 'landmark':
+        #     return output
 
         with tf.variable_scope('LandmarkAttention'):
             output = output[:, :, :, :-1]

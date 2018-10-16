@@ -38,7 +38,9 @@ tf.app.flags.DEFINE_integer('num_epochs', 22, 'The epochs of train data.')
 
 tf.app.flags.DEFINE_integer('batch_size', 5, 'The number of samples in each batch.')
 
-tf.app.flags.DEFINE_integer('train_images_num', 2800, 'The number of images in train data.')
+tf.app.flags.DEFINE_integer('buffer_size', 2900, 'The number of input images in buffer.')
+
+tf.app.flags.DEFINE_integer('train_images_num', 290000, 'The number of images in train data.')
 
 tf.app.flags.DEFINE_float('dropout_keep_prob', 0.5, 'VGG dropout keep prob')
 
@@ -46,9 +48,9 @@ tf.app.flags.DEFINE_string(
     'model_dir', 'model',
     'Directory where checkpoints and event logs are written to.')
 
-tf.app.flags.DEFINE_string('train_stage', 'landmark', 'The train stage')
+tf.app.flags.DEFINE_bool('init', False, 'Whether to initialize the model.')
 
-tf.app.flags.DEFINE_bool('init', False, 'Whether to initialize or train.')
+tf.app.flags.DEFINE_string('train_stage', 'landmark', 'The train stage.')
 
 ######################
 # Optimization Flags #
@@ -230,26 +232,21 @@ def configure_optimizer(learning_rate):
 def train(trainList, stage='landmark', init=False):
     afg_net = AFGNet()
 
-    if stage.lower() == 'landmark':
-        augment = False
-    else:
-        augment = True
     images, label, heatmaps, landmarks = input_fn(True, trainList, params={
-        'augment': augment,
         'num_epochs': FLAGS.num_epochs,
         'num_classes': FLAGS.num_classes,
         'batch_size': FLAGS.batch_size,
-        'buffer_size': FLAGS.train_images_num,
+        'buffer_size': FLAGS.buffer_size,
         'min_scale': 0.8,
         'max_scale': 1.2,
         'height': FLAGS.image_size,
         'width': FLAGS.image_size,
     })
-    # heatmaps = tf.image.resize_images(heatmaps, [28, 28],
-    #                                   method=tf.image.ResizeMethod.BILINEAR)
+    heatmaps = tf.image.resize_images(heatmaps, [28, 28],
+                                      method=tf.image.ResizeMethod.BILINEAR)
 
     # build net
-    ground_heatmaps = tf.placeholder(tf.float32, shape=(None, FLAGS.image_size, FLAGS.image_size, 9))
+    ground_heatmaps = tf.placeholder(tf.float32, shape=(None, 28, 28, 9))
     images_input = tf.placeholder(tf.float32, shape=(None, FLAGS.image_size, FLAGS.image_size, 3))
     label_input = tf.placeholder(tf.int32, shape=(None, FLAGS.num_classes))
     net = afg_net.buildNet(images_input, FLAGS.num_classes, weight_decay=FLAGS.weight_decay,
@@ -264,12 +261,18 @@ def train(trainList, stage='landmark', init=False):
     # loss definition
     # slim.losses.add_loss(pose_loss)
     if stage.lower() == 'landmark':
-        net = tf.image.resize_images(net, [FLAGS.image_size, FLAGS.image_size],
-                                     method=tf.image.ResizeMethod.BILINEAR)
-        slim.losses.mean_squared_error(net, ground_heatmaps)
+        # net = tf.image.resize_images(net, [FLAGS.image_size, FLAGS.image_size],
+        #                              method=tf.image.ResizeMethod.BILINEAR)
+        loss_d = tf.reduce_mean(tf.reduce_sum(tf.where(tf.greater(ground_heatmaps, 0.1),
+                                                       tf.square(ground_heatmaps - net)*200,
+                                                       tf.square(ground_heatmaps - net)), axis=[1,2,3]))
+        slim.losses.add_loss(loss_d)
+        # slim.losses.mean_squared_error(net, ground_heatmaps)
+        loss = slim.losses.get_total_loss()
     else:
         slim.losses.sigmoid_cross_entropy(net, label, label_smoothing=0.0000001)
-    loss = slim.losses.get_total_loss()
+        loss = slim.losses.get_total_loss()
+    # loss = slim.losses.get_total_loss()
     tf.summary.scalar('loss', loss)
 
     if stage.lower() == 'landmark':
@@ -286,6 +289,7 @@ def train(trainList, stage='landmark', init=False):
     merge_summary = tf.summary.merge_all()
     with tf.Session() as sess:
         if init:
+            logger.info('Initialization...')
             sess.run(tf.global_variables_initializer())
 
             if stage.lower() == 'landmark':
@@ -293,6 +297,7 @@ def train(trainList, stage='landmark', init=False):
                            'Classification', 'global_step', 'save']
             else:
                 exclude = ['ClothingAttention', 'Classification', 'global_step']
+            logger.debug('variables to ignore:{}'.format(exclude))
             variables_to_restore = tf.contrib.slim.get_variables_to_restore(exclude=exclude)
 
             # saver = tf.train.Saver(variables_to_restore)
@@ -309,6 +314,7 @@ def train(trainList, stage='landmark', init=False):
 
             return
         else:
+            logger.info('Training...')
             saver = tf.train.Saver()
             ckpt = tf.train.get_checkpoint_state(FLAGS.model_dir)
             if ckpt and ckpt.model_checkpoint_path:
