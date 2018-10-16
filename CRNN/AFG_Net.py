@@ -375,7 +375,7 @@ class AFGNet(object):
 
         with tf.variable_scope('BCRNN'):
             with slim.arg_scope([slim.conv2d],
-                                activation_fn=tf.nn.relu,
+                                activation_fn=tf.nn.sigmoid,
                                 weights_regularizer=slim.l2_regularizer(weight_decay),
                                 padding='SAME'):
                 # 8 landmarks and 1 background
