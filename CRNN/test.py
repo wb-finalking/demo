@@ -135,12 +135,31 @@ def np_draw_labelmap(pt, heatmap_sigma, heatmap_size, type='Gaussian'):
     cv2.imshow('', img)
     cv2.waitKey()
 
+def testHeatmap():
+    landmarks = [[100,100], [150,150]]
+    heatmaps = []
+    for landmark in landmarks:
+        img = np.zeros((224, 224))
+        if landmark[0] >= 0 and landmark[1] >= 0:
+            # print('convertLandmark2Heatmap:{}'.format(img.shape))
+            img[int(landmark[0]), int(landmark[1])] = 2e3
+        img = cv2.GaussianBlur(img, (131, 131), 0)
+        # img = cv2.resize(img, (28, 28))
+        heatmaps.append(img)
+    heatmaps = np.array(heatmaps)
+    heatmaps = np.max(heatmaps, axis=0)
+    print(np.max(heatmaps))
+    cv2.imshow('', heatmaps)
+    cv2.waitKey()
+
+
 if __name__ == '__main__':
     # testTfExample()
-    # testTfParser()
+    testTfParser()
     # testAFG_Net()
     # testInput()
-    np_draw_labelmap([10, 10], 1, 224)
+    # np_draw_labelmap([10, 10], 1, 224)
+    # testHeatmap()
 
     # img = convertLandmark2Heatmap([[71, 71]], 600, 600)
     # print(img.shape)

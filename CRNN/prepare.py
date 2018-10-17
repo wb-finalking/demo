@@ -53,7 +53,7 @@ def contrastLimitedAHE(image):
     return Image.fromarray(image)
 
 def heatmapCompress(heatmap):
-    heatmap = heatmap * 255*255
+    heatmap = heatmap * 255
     heatmap[heatmap > 255] = 255
     image = Image.fromarray(np.uint8(heatmap), 'L')
     # image.show('')
@@ -73,8 +73,8 @@ def convertLandmark2Heatmap(landmarks, height, width):
         img = np.zeros((height, width))
         if landmark[0] >= 0 and landmark[1] >= 0:
             # print('convertLandmark2Heatmap:{}'.format(img.shape))
-            img[int(landmark[0]), int(landmark[1])] = 1
-        img = cv2.GaussianBlur(img, (31, 31), 0)
+            img[int(landmark[0]), int(landmark[1])] = 2e3
+        img = cv2.GaussianBlur(img, (131, 131), 0)
         # img = cv2.resize(img, (28, 28))
         heatmaps.append(img)
     heatmaps = np.array(heatmaps)
@@ -214,7 +214,6 @@ def createLandmarkRecord(output):
     read tfrecorde
 """
 
-
 def parse_heatmap(parsed_image):
     image = tf.image.decode_image(tf.reshape(parsed_image, shape=[]), 1)
     image = tf.to_float(tf.image.convert_image_dtype(image, dtype=tf.uint8))
@@ -236,22 +235,22 @@ def parse_record(raw_record):
             tf.VarLenFeature(tf.int64),
         'labelID':
             tf.FixedLenFeature((), tf.int64),
-        'l-collar':
-            tf.FixedLenFeature((), tf.string, default_value=''),
-        'l-sleeve':
-            tf.FixedLenFeature((), tf.string, default_value=''),
-        'l-waistline':
-            tf.FixedLenFeature((), tf.string, default_value=''),
-        'l-hem':
-            tf.FixedLenFeature((), tf.string, default_value=''),
-        'r-collar':
-            tf.FixedLenFeature((), tf.string, default_value=''),
-        'r-sleeve':
-            tf.FixedLenFeature((), tf.string, default_value=''),
-        'r-waistline':
-            tf.FixedLenFeature((), tf.string, default_value=''),
-        'r-hem':
-            tf.FixedLenFeature((), tf.string, default_value=''),
+        # 'l-collar':
+        #     tf.FixedLenFeature((), tf.string, default_value=''),
+        # 'l-sleeve':
+        #     tf.FixedLenFeature((), tf.string, default_value=''),
+        # 'l-waistline':
+        #     tf.FixedLenFeature((), tf.string, default_value=''),
+        # 'l-hem':
+        #     tf.FixedLenFeature((), tf.string, default_value=''),
+        # 'r-collar':
+        #     tf.FixedLenFeature((), tf.string, default_value=''),
+        # 'r-sleeve':
+        #     tf.FixedLenFeature((), tf.string, default_value=''),
+        # 'r-waistline':
+        #     tf.FixedLenFeature((), tf.string, default_value=''),
+        # 'r-hem':
+        #     tf.FixedLenFeature((), tf.string, default_value=''),
     }
 
     parsed = tf.parse_single_example(raw_record, keys_to_features)
@@ -268,38 +267,31 @@ def parse_record(raw_record):
     image = tf.to_float(tf.image.convert_image_dtype(image, dtype=tf.uint8))
     image.set_shape([None, None, 3])
 
-    l_collar = parse_heatmap(parsed['l-collar'])
-    l_sleeve = parse_heatmap(parsed['l-sleeve'])
-    l_waistline = parse_heatmap(parsed['l-waistline'])
-    l_hem = parse_heatmap(parsed['l-hem'])
-    r_collar = parse_heatmap(parsed['r-collar'])
-    r_sleeve = parse_heatmap(parsed['r-sleeve'])
-    r_waistline = parse_heatmap(parsed['r-waistline'])
-    r_hem = parse_heatmap(parsed['r-hem'])
+    # l_collar = parse_heatmap(parsed['l-collar'])
+    # l_sleeve = parse_heatmap(parsed['l-sleeve'])
+    # l_waistline = parse_heatmap(parsed['l-waistline'])
+    # l_hem = parse_heatmap(parsed['l-hem'])
+    # r_collar = parse_heatmap(parsed['r-collar'])
+    # r_sleeve = parse_heatmap(parsed['r-sleeve'])
+    # r_waistline = parse_heatmap(parsed['r-waistline'])
+    # r_hem = parse_heatmap(parsed['r-hem'])
+    # heatmaps = tf.concat([l_collar, l_sleeve, l_waistline, l_hem,
+    #                      r_collar, r_sleeve, r_waistline, r_hem], axis=2)
 
-    heatmaps = tf.concat([l_collar, l_sleeve, l_waistline, l_hem,
-                         r_collar, r_sleeve, r_waistline, r_hem], axis=2)
+    return image, labelID, landmarks, width, height
 
-    return image, labelID, heatmaps, landmarks
-
-def construct_heatmap(image, width, height, labelID, landmarks):
-    def construct_heatmap(landmarks, width, height):
-        heatmaps = []
-        for landmark in landmarks:
-            img = np.zeros((height, width))
-            if landmark[0] >= 0 and landmark[1] >= 0:
-                # print('convertLandmark2Heatmap:{}'.format(img.shape))
-                img[int(landmark[0]), int(landmark[1])] = 1
-            img = cv2.GaussianBlur(img, (31, 31), 0)
-            # img = cv2.resize(img, (28, 28))
-            heatmaps.append(img)
-        heatmaps = np.array(heatmaps)
-
-        return heatmaps
-
-    construct_heatmap_op = tf.py_func(construct_heatmap, [width, height],
-                                      [tf.float32])
-    heatmaps = construct_heatmap_op(landmarks, width, height)
+def construct_heatmap(image, labelID, landmarks, width, height):
+    heatmaps = []
+    for landmark in landmarks:
+        img = np.zeros((height, width))
+        if landmark[0] >= 0 and landmark[1] >= 0:
+            # print('convertLandmark2Heatmap:{}'.format(img.shape))
+            img[int(landmark[0]), int(landmark[1])] = 2e3
+        img = cv2.GaussianBlur(img, (131, 131), 0)
+        # img = cv2.resize(img, (28, 28))
+        heatmaps.append(img)
+    heatmaps = np.array(heatmaps)
+    heatmaps = np.transpose(heatmaps, (1, 2, 0))
 
     return image, labelID, heatmaps, landmarks
 
@@ -510,6 +502,9 @@ def input_fn(is_training, recordFilename, params):
         dataset = dataset.shuffle(buffer_size=params['buffer_size'])
 
     dataset = dataset.map(parse_record)
+    dataset = dataset.map(
+        lambda image, labelID, landmarks, width, height:
+        tf.py_func(construct_heatmap, [image, labelID, landmarks, width, height], [tf.float32, tf.int32, tf.float32, tf.int64]))
     dataset = dataset.map(
         lambda image, labelID, heatmaps, landmarks:
         preprocess_image(image, labelID, heatmaps, landmarks, is_training, params=params))
