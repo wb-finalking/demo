@@ -23,22 +23,17 @@ image_size = 224
 def int64_feature(value):
     return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
 
-
 def int64_list_feature(value):
     return tf.train.Feature(int64_list=tf.train.Int64List(value=value))
-
 
 def bytes_feature(value):
     return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
 
-
 def bytes_list_feature(value):
     return tf.train.Feature(bytes_list=tf.train.BytesList(value=value))
 
-
 def float_list_feature(value):
     return tf.train.Feature(float_list=tf.train.FloatList(value=value))
-
 
 def contrastLimitedAHE(image):
     # image_arrary = np.array(image)
@@ -287,6 +282,27 @@ def parse_record(raw_record):
 
     return image, labelID, heatmaps, landmarks
 
+def construct_heatmap(image, width, height, labelID, landmarks):
+    def construct_heatmap(landmarks, width, height):
+        heatmaps = []
+        for landmark in landmarks:
+            img = np.zeros((height, width))
+            if landmark[0] >= 0 and landmark[1] >= 0:
+                # print('convertLandmark2Heatmap:{}'.format(img.shape))
+                img[int(landmark[0]), int(landmark[1])] = 1
+            img = cv2.GaussianBlur(img, (31, 31), 0)
+            # img = cv2.resize(img, (28, 28))
+            heatmaps.append(img)
+        heatmaps = np.array(heatmaps)
+
+        return heatmaps
+
+    construct_heatmap_op = tf.py_func(construct_heatmap, [width, height],
+                                      [tf.float32])
+    heatmaps = construct_heatmap_op(landmarks, width, height)
+
+    return image, labelID, heatmaps, landmarks
+
 def random_rescale_image(image, heatmaps, min_scale, max_scale, target_height, target_width):
     """Rescale an image and label with in target scale.
     Rescales an image and label within the range of target scale.
@@ -325,7 +341,6 @@ def random_rescale_image(image, heatmaps, min_scale, max_scale, target_height, t
 
     return image, heatmaps
 
-
 def random_rotate_image(image, heatmaps, lowAngle, highAngle):
     # tf.set_random_seed(666)
 
@@ -336,7 +351,6 @@ def random_rotate_image(image, heatmaps, lowAngle, highAngle):
     image_rotate = tf.py_func(random_rotate_image_func, [image], tf.uint8)
 
     return image_rotate
-
 
 def random_crop_or_pad_image(image, heatmaps, crop_height, crop_width):
     """Crops and/or pads an image to a target width and height.
@@ -367,7 +381,6 @@ def random_crop_or_pad_image(image, heatmaps, crop_height, crop_width):
 
     return image_crop, heatmaps_crop
 
-
 def resize_and_random_crop_image(image, heatmaps, crop_height, crop_width):
     image_height = tf.shape(image)[0]
     image_width = tf.shape(image)[1]
@@ -390,7 +403,6 @@ def resize_and_random_crop_image(image, heatmaps, crop_height, crop_width):
 
     return image_crop, heatmaps
 
-
 def random_flip_left_right_image(image, heatmaps):
     """Randomly flip an image and label horizontally (left to right).
     Args:
@@ -405,7 +417,6 @@ def random_flip_left_right_image(image, heatmaps):
     heatmaps = tf.cond(mirror_cond, lambda: tf.reverse(heatmaps, [1]), lambda: heatmaps)
 
     return image, heatmaps
-
 
 def mean_image_subtraction(image, means=(123.68, 116.779, 103.939)):
     """Subtracts the given means from each image channel.
@@ -434,7 +445,6 @@ def mean_image_subtraction(image, means=(123.68, 116.779, 103.939)):
         channels[i] -= means[i]
     return tf.concat(axis=2, values=channels)
 
-
 def resizeImageKeepScale(image, heatmaps, targetW=299, targetH=299):
     shape = tf.shape(image)
     height = tf.to_float(shape[0])
@@ -451,7 +461,6 @@ def resizeImageKeepScale(image, heatmaps, targetW=299, targetH=299):
     #     targetH, targetW)
 
     return image, heatmaps
-
 
 def preprocess_image(image, labelID, heatmaps, landmarks, is_training, params):
     """Preprocess a single image of layout [height, width, depth]."""
@@ -481,7 +490,6 @@ def preprocess_image(image, labelID, heatmaps, landmarks, is_training, params):
     heatmaps = tf.concat([heatmaps, background], axis=2)
 
     return image, label, heatmaps, landmarks
-
 
 def input_fn(is_training, recordFilename, params):
     """Input_fn using the tf.data input pipeline for CIFAR-10 dataset.
