@@ -320,16 +320,21 @@ def random_rescale_image(image, heatmaps, min_scale, max_scale, target_height, t
     shape = tf.shape(image)
     height = tf.to_float(shape[0])
     width = tf.to_float(shape[1])
+
     target_scale = tf.minimum(float(target_width) / tf.to_float(width),
                               float(target_height) / tf.to_float(height))
-
     scale = tf.random_uniform([], minval=min_scale, maxval=max_scale, dtype=tf.float32)
     new_height = tf.to_int32(height * scale * target_scale)
     new_width = tf.to_int32(width * scale * target_scale)
-    # image = tf.image.resize_images(image, [new_height, new_width],
-    #                                method=tf.image.ResizeMethod.BILINEAR)
-    image = tf.image.resize_image_with_crop_or_pad(image, new_height, new_width)
-    heatmaps = tf.image.resize_image_with_crop_or_pad(heatmaps, new_height, new_width)
+
+    image.set_shape([None, None, 3])
+    heatmaps.set_shape([None, None, 9])
+    image = tf.image.resize_images(image, [new_height, new_width],
+                                   method=tf.image.ResizeMethod.BILINEAR)
+    heatmaps = tf.image.resize_images(heatmaps, [new_height, new_width],
+                                      method=tf.image.ResizeMethod.BILINEAR)
+    # image = tf.image.resize_image_with_crop_or_pad(image, new_height, new_width)
+    # heatmaps = tf.image.resize_image_with_crop_or_pad(heatmaps, new_height, new_width)
 
     return image, heatmaps
 
