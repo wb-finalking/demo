@@ -2,4 +2,4 @@
 
 Here are codes for [Fashion Classification](http://web.cs.ucla.edu/~yuanluxu/publications/fashion_grammar_cvpr18.pdf).
 
-![](https://github.com/wb-finalking/tensorflow/tree/master/CRNN/model.PNG)
+![](https://github.com/wb-finalking/tensorflow/blob/master/CRNN/model.PNG)
