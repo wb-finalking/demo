@@ -509,7 +509,8 @@ def input_fn(is_training, recordFilename, params):
     dataset = dataset.map(parse_record)
     dataset = dataset.map(
         lambda image, labelID, landmarks, width, height:
-        tf.py_func(construct_heatmap, [image, labelID, landmarks, width, height], [tf.float32, tf.int32, tf.float32, tf.int64]))
+        tf.py_func(construct_heatmap, [image, labelID, landmarks, width, height],
+                   [tf.float32, tf.int32, tf.float32, tf.int64]))
     dataset = dataset.map(
         lambda image, labelID, heatmaps, landmarks:
         preprocess_image(image, labelID, heatmaps, landmarks, is_training, params=params))
