@@ -434,9 +434,9 @@ class AFGNet(object):
         with tf.variable_scope('LandmarkAttention'):
             output = output[:, :, :, :-1]
             AL = tf.reduce_mean(output, axis=-1, keep_dims=True)
-            tile_shape = tf.ones_like(output.shape)
-            tile_shape[-1] = output.shape[-1]
-            AL = tf.tile(AL, tile_shape)
+            # tile_shape = tf.ones_like(output.shape)
+            # tile_shape[-1] = output.shape[-1]
+            AL = tf.tile(AL, [1, 1, 1, net.shape[-1]])
             GL = tf.multiply(AL, net)
 
         with tf.variable_scope('ClothingAttention'):
@@ -446,11 +446,11 @@ class AFGNet(object):
                                 biases_initializer=tf.zeros_initializer(),
                                 scope='ClothingAttention'):
                 AC = slim.max_pool2d(net, [2, 2], scope='AC_pool1')
-                AC = slim.conv2d(AC, 512, [2, 2], scope='AC_conv1')
+                AC = slim.conv2d(AC, 512, [3, 3], scope='AC_conv1')
                 AC = slim.max_pool2d(AC, [2, 2], scope='AC_pool2')
-                AC = slim.conv2d(AC, 512, [2, 2], scope='AC_conv2')
+                AC = slim.conv2d(AC, 512, [3, 3], scope='AC_conv2')
                 AC = slim.conv2d_transpose(AC, num_outputs=512,
-                                           strides=4, kernel_size=[2, 2],
+                                           stride=4, kernel_size=[3, 3],
                                            padding='SAME',
                                            scope='AC_upsample')
                 AC = tf.sigmoid(AC, 'sigmoid')
@@ -521,7 +521,7 @@ class AFGNet(object):
                 # rnn_cell_fw = CRNN(2, [28, 28, 1], 1, [2, 2])
                 # rnn_cell_bw = CRNN(2, [28, 28, 1], 1, [2, 2])
 
-                kwarg = {'input_shape':[28, 28, 1], 'output_channels':1, 'kernel_shape':[2, 2]}
+                kwarg = {'input_shape':[28, 28, 1], 'output_channels':1, 'kernel_shape':[3, 3]}
                 rnn_cell_fw = tf.contrib.rnn.Conv2DLSTMCell('conv_2d_lstm_cell_fw',**kwarg)
                 rnn_cell_bw = tf.contrib.rnn.Conv2DLSTMCell('conv_2d_lstm_cell_bw',**kwarg)
 

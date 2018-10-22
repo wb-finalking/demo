@@ -92,9 +92,12 @@ def testAFG_Net():
     label_input = tf.placeholder(tf.int32, shape=(None, num_classes))
     net = afg_net.buildNet(images_input, num_classes, weight_decay=0.0005,
                            is_training=True, dropout_keep_prob=0.5,
-                           stage='landmark')
+                           stage='classification')
 
-    print(tf.trainable_variables())
+    exclude = ['vgg_16']
+    variables_to_train = [v for v in tf.trainable_variables()
+                          if v.name.split('/')[0] not in exclude]
+    print(variables_to_train)
 
 def np_draw_labelmap(pt, heatmap_sigma, heatmap_size, type='Gaussian'):
     # Draw a 2D gaussian
@@ -155,8 +158,8 @@ def testHeatmap():
 
 if __name__ == '__main__':
     # testTfExample()
-    testTfParser()
-    # testAFG_Net()
+    # testTfParser()
+    testAFG_Net()
     # testInput()
     # np_draw_labelmap([10, 10], 1, 224)
     # testHeatmap()
